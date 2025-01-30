@@ -3,12 +3,27 @@ import cv2
 import numpy as np
 import torch
 import tensorflow as tf
+import RPi.GPIO as GPIO  # Add GPIO import
 
 from dms_utils.dms_utils import load_and_preprocess_image, ACTIONS
 from net import MobileNet
 from facial_tracking.facialTracking import FacialTracker
 import facial_tracking.conf as conf
 
+# GPIO Setup
+EYES_CLOSED_PIN = 17  # GPIO pin for eyes closed
+YAWN_PIN = 27        # GPIO pin for yawning
+MOBILE_PIN = 22      # GPIO pin for mobile phone detection
+
+def setup_gpio():
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
+    GPIO.setup(YAWN_PIN, GPIO.OUT)
+    GPIO.setup(MOBILE_PIN, GPIO.OUT)
+    # Initialize all pins to LOW
+    GPIO.output(EYES_CLOSED_PIN, GPIO.LOW)
+    GPIO.output(YAWN_PIN, GPIO.LOW)
+    GPIO.output(MOBILE_PIN, GPIO.LOW)
 
 def infer_one_frame(image, model, yolo_model, facial_tracker):
     eyes_status = ''
@@ -28,6 +43,11 @@ def infer_one_frame(image, model, yolo_model, facial_tracker):
     y = model.predict(rgb_image)
     result = np.argmax(y, axis=1)
 
+    # Control GPIO based on detections
+    GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
+    GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
+    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
+
     if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
         action = list(ACTIONS.keys())[result[0]]
     if result[0] == 1 and eyes_status == 'eye closed':
@@ -42,60 +62,66 @@ def infer_one_frame(image, model, yolo_model, facial_tracker):
     
     return image
 
-
 def infer(args):
-    image_path = args.image
-    video_path = args.video
-    cam_id = args.webcam
-    checkpoint = args.checkpoint
-    save = args.save
-
-    model = MobileNet()
-    model.load_weights(checkpoint)
-
-    yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
-    yolo_model.classes = [67]
-
-    facial_tracker = FacialTracker()
-
-    if image_path:
-        image = cv2.imread(image_path)
-        image = infer_one_frame(image, model, yolo_model, facial_tracker)
-        cv2.imwrite('images/test_inferred.jpg', image)
+    # Setup GPIO at start
+    setup_gpio()
     
-    if video_path or cam_id is not None:
-        cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
-        
-        if cam_id is not None:
-            cap.set(3, conf.FRAME_W)
-            cap.set(4, conf.FRAME_H)
-        
-        frame_width = int(cap.get(3))
-        frame_height = int(cap.get(4))
-        fps = cap.get(cv2.CAP_PROP_FPS)
+    try:
+        image_path = args.image
+        video_path = args.video
+        cam_id = args.webcam
+        checkpoint = args.checkpoint
+        save = args.save
 
-        if save:
-            out = cv2.VideoWriter('videos/output.avi',cv2.VideoWriter_fourcc('M','J','P','G'),
-                fps, (frame_width,frame_height))
-        
-        while True:
-            success, image = cap.read()
-            if not success:
-                break
+        model = MobileNet()
+        model.load_weights(checkpoint)
 
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+        yolo_model.classes = [67]
+
+        facial_tracker = FacialTracker()
+
+        if image_path:
+            image = cv2.imread(image_path)
             image = infer_one_frame(image, model, yolo_model, facial_tracker)
-            if save:
-                out.write(image)
-            else:
-                cv2.imshow('DMS', image)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+            cv2.imwrite('images/test_inferred.jpg', image)
+        
+        if video_path or cam_id is not None:
+            cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
-        cap.release()
-        if save:
-            out.release()
-        cv2.destroyAllWindows()
-    
+            if cam_id is not None:
+                cap.set(3, conf.FRAME_W)
+                cap.set(4, conf.FRAME_H)
+            
+            frame_width = int(cap.get(3))
+            frame_height = int(cap.get(4))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+
+            if save:
+                out = cv2.VideoWriter('videos/output.avi',cv2.VideoWriter_fourcc('M','J','P','G'),
+                    fps, (frame_width,frame_height))
+            
+            while True:
+                success, image = cap.read()
+                if not success:
+                    break
+
+                image = infer_one_frame(image, model, yolo_model, facial_tracker)
+                if save:
+                    out.write(image)
+                else:
+                    cv2.imshow('DMS', image)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                
+            cap.release()
+            if save:
+                out.release()
+            cv2.destroyAllWindows()
+
+    finally:
+        # Clean up GPIO on exit
+        GPIO.cleanup()
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
