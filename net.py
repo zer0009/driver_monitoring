@@ -1,43 +1,33 @@
 import tensorflow as tf
-from tensorflow.keras import Sequential
-from tensorflow.keras.layers.experimental.preprocessing import Rescaling
-from tensorflow.keras.layers import RandomRotation, RandomZoom, Dense, Dropout,\
-    BatchNormalization, GlobalAveragePooling2D
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import layers, Model
 
+class MobileNet(Model):
+    def __init__(self):
+        super(MobileNet, self).__init__()
+        
+        # Create the base model
+        base_model = tf.keras.applications.MobileNetV2(
+            input_shape=(224, 224, 3),
+            include_top=False,
+            weights='imagenet'
+        )
+        base_model.trainable = False
 
-class MobileNet(Sequential):
-    """
-    Customized mobilenet architecture.
-    """
-    
-    def __init__(self, input_shape=(224,224,3), num_classes=2, dropout=0.25, lr=1e-3,
-                 augmentation=False, train_base=False, add_layer=False):
-        super().__init__()
+        # Create the full model
+        inputs = layers.Input(shape=(224, 224, 3))
+        x = base_model(inputs, training=False)
+        x = layers.GlobalAveragePooling2D()(x)
+        x = layers.Dropout(0.2)(x)
+        outputs = layers.Dense(2, activation='softmax')(x)
+        
+        # Build the model in a way that matches the saved weights
+        self.model = Model(inputs, outputs)
 
-        self.base_model = tf.keras.applications.MobileNetV2(
-            weights='imagenet',
-            input_shape=input_shape,
-            include_top=False)
-        self.base_model.trainable = train_base
+    def call(self, inputs):
+        return self.model(inputs)
 
-        if augmentation:
-            self.add(RandomRotation(0.15, input_shape=input_shape))
-            self.add(RandomZoom(0.1))
-            self.add(Rescaling(1./127.5, offset=-1))
-        else:
-            self.add(Rescaling(1./127.5, offset=-1, input_shape=input_shape))
-        
-        self.add(self.base_model)
-        self.add(GlobalAveragePooling2D())
-        self.add(Dropout(dropout))
-        
-        if add_layer:
-            self.add(Dense(256, activation='relu'))
-            self.add(Dropout(dropout))
-        
-        self.add(Dense(num_classes, activation='softmax'))
-        
-        self.compile(optimizer=Adam(learning_rate=lr),
-                     loss='sparse_categorical_crossentropy',
-                     metrics=["accuracy"])
+    def load_weights(self, checkpoint):
+        self.model.load_weights(checkpoint)
+
+    def predict(self, inputs):
+        return self.model.predict(inputs)
