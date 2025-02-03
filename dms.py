@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import tensorflow as tf
 import RPi.GPIO as GPIO  # Add GPIO import
+import time
 
 from dms_utils.dms_utils import load_and_preprocess_image, ACTIONS
 from net import MobileNet
@@ -15,15 +16,47 @@ EYES_CLOSED_PIN = 17  # GPIO pin for eyes closed
 YAWN_PIN = 27        # GPIO pin for yawning
 MOBILE_PIN = 22      # GPIO pin for mobile phone detection
 
+# Add constants for signal timing
+MIN_SIGNAL_DURATION = 2.0  # Minimum duration (seconds) before triggering alert
+SIGNAL_RESET_TIME = 1.0    # Time to wait before resetting signal
+
+class SignalHandler:
+    def __init__(self, pin):
+        self.pin = pin
+        self.active_since = None
+        self.last_state = False
+
+    def update(self, new_state):
+        if new_state and not self.last_state:  # Signal just became active
+            self.active_since = time.time()
+        elif not new_state and self.last_state:  # Signal just became inactive
+            self.active_since = None
+        
+        self.last_state = new_state
+        
+        # Only trigger if signal has been active for minimum duration
+        if self.active_since and (time.time() - self.active_since) >= MIN_SIGNAL_DURATION:
+            GPIO.output(self.pin, GPIO.HIGH)
+        else:
+            GPIO.output(self.pin, GPIO.LOW)
+
 def setup_gpio():
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
     GPIO.setup(YAWN_PIN, GPIO.OUT)
     GPIO.setup(MOBILE_PIN, GPIO.OUT)
+    
     # Initialize all pins to LOW
     GPIO.output(EYES_CLOSED_PIN, GPIO.LOW)
     GPIO.output(YAWN_PIN, GPIO.LOW)
     GPIO.output(MOBILE_PIN, GPIO.LOW)
+    
+    print("GPIO initialized successfully")
+
+# Create signal handlers
+eyes_signal = SignalHandler(EYES_CLOSED_PIN)
+yawn_signal = SignalHandler(YAWN_PIN)
+mobile_signal = SignalHandler(MOBILE_PIN)
 
 def infer_one_frame(image, model, yolo_model, facial_tracker):
     eyes_status = ''
@@ -42,6 +75,11 @@ def infer_one_frame(image, model, yolo_model, facial_tracker):
     rgb_image = tf.expand_dims(rgb_image, 0)
     y = model.predict(rgb_image)
     result = np.argmax(y, axis=1)
+
+    # Update signals with current states
+    eyes_signal.update(eyes_status == 'eye closed')
+    yawn_signal.update(yawn_status == 'yawning')
+    mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
 
     # Control GPIO based on detections
     GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
@@ -63,10 +101,10 @@ def infer_one_frame(image, model, yolo_model, facial_tracker):
     return image
 
 def infer(args):
-    # Setup GPIO at start
-    setup_gpio()
-    
     try:
+        setup_gpio()
+        print("Starting DMS monitoring...")
+        
         image_path = args.image
         video_path = args.video
         cam_id = args.webcam
@@ -119,9 +157,12 @@ def infer(args):
                 out.release()
             cv2.destroyAllWindows()
 
-    finally:
-        # Clean up GPIO on exit
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
         GPIO.cleanup()
+    finally:
+        GPIO.cleanup()
+        print("GPIO cleaned up")
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
