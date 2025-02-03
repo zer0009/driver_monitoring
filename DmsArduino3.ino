@@ -63,9 +63,9 @@ void setup() {
     pinMode(DEBUG_LED, OUTPUT);
     digitalWrite(DEBUG_LED, HIGH);  // LED off initially (ESP8266 LED is active LOW)
     
-    // Configure input pins with pulldown resistors
+    // Configure input pins for receiving signals from Raspberry Pi
     for (Signal& signal : signals) {
-        pinMode(signal.pin, INPUT_PULLDOWN);
+        pinMode(signal.pin, INPUT);  // Simple INPUT mode is correct here
     }
     
     initGSM();
