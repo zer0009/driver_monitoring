@@ -186,12 +186,13 @@ def infer(args):
                 
                 if save:
                     out.write(image)
-                elif not IS_RASPBERRY_PI:  # Only show window if not on Pi
-                    cv2.namedWindow('DMS', cv2.WINDOW_NORMAL)
-                    cv2.resizeWindow('DMS', 800, 600)
-                    cv2.imshow('DMS', image)
-                    if cv2.waitKey(5) & 0xFF == ord('q'):
-                        break
+                
+                # Show window on both Pi and PC
+                cv2.namedWindow('DMS', cv2.WINDOW_NORMAL)
+                cv2.resizeWindow('DMS', 800, 600)
+                cv2.imshow('DMS', image)
+                if cv2.waitKey(5) & 0xFF == ord('q'):
+                    break
             
             cap.release()
             if save:
