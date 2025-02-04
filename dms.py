@@ -134,9 +134,10 @@ def infer(args):
         # Replace YOLOv5s with YOLOv5n
         yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n')
         yolo_model.classes = [67]  # phone class
-        # Optional: Set inference size for even faster processing
-        yolo_model.conf = 0.25  # Lower confidence threshold for faster inference
-        yolo_model.iou = 0.45   # Lower IoU threshold
+        # Adjust detection parameters for better sensitivity
+        yolo_model.conf = 0.15    # Lower confidence threshold for more sensitive detection
+        yolo_model.iou = 0.35     # Lower IoU threshold
+        yolo_model.max_det = 10   # Increase maximum detections per image
 
         image_path = args.image
         video_path = args.video
