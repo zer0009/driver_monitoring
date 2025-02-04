@@ -128,10 +128,11 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                cap.set(3, conf.FRAME_W)
-                cap.set(4, conf.FRAME_H)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize frame buffer
-                cap.set(cv2.CAP_PROP_FPS, 30)  # Set target FPS
+                # Reduce resolution for faster processing
+                cap.set(3, 320)  # Reduced width
+                cap.set(4, 240)  # Reduced height
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                cap.set(cv2.CAP_PROP_FPS, 15)  # Reduced FPS
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
@@ -147,7 +148,10 @@ def infer(args):
                     break
 
                 if cam_id is not None:
-                    cap.grab()  # Skip one frame to reduce processing load
+                    # Skip more frames for faster processing
+                    cap.grab()  # Skip frame 1
+                    cap.grab()  # Skip frame 2
+                    cap.grab()  # Skip frame 3
                 
                 image = infer_one_frame(image, model, yolo_model, facial_tracker)
                 
