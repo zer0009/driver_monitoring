@@ -58,7 +58,11 @@ eyes_signal = SignalHandler(EYES_CLOSED_PIN)
 yawn_signal = SignalHandler(YAWN_PIN)
 mobile_signal = SignalHandler(MOBILE_PIN)
 
-def infer_one_frame(image, model, yolo_model, facial_tracker):
+def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
+    # Get input and output details
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
     eyes_status = ''
     yawn_status = ''
     action = ''
@@ -71,9 +75,19 @@ def infer_one_frame(image, model, yolo_model, facial_tracker):
     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     yolo_result = yolo_model(rgb_image)
 
+    # Prepare input data for TFLite
     rgb_image = cv2.resize(rgb_image, (224,224))
     rgb_image = tf.expand_dims(rgb_image, 0)
-    y = model.predict(rgb_image)
+    rgb_image = tf.cast(rgb_image, tf.float32)
+
+    # Set input tensor
+    interpreter.set_tensor(input_details[0]['index'], rgb_image)
+    
+    # Run inference
+    interpreter.invoke()
+    
+    # Get output tensor
+    y = interpreter.get_tensor(output_details[0]['index'])
     result = np.argmax(y, axis=1)
 
     # Update signals with current states
@@ -105,23 +119,29 @@ def infer(args):
         setup_gpio()
         print("Starting DMS monitoring...")
         
-        image_path = args.image
-        video_path = args.video
-        cam_id = args.webcam
         checkpoint = args.checkpoint
-        save = args.save
+        
+        # Load TFLite model
+        interpreter = tf.lite.Interpreter(model_path=checkpoint)
+        interpreter.allocate_tensors()
 
-        model = MobileNet()
-        model.load_weights(checkpoint)
+        # Replace model loading
+        # model = MobileNet()
+        # model.load_weights(checkpoint)
 
         yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
         yolo_model.classes = [67]
+
+        image_path = args.image
+        video_path = args.video
+        cam_id = args.webcam
+        save = args.save
 
         facial_tracker = FacialTracker()
 
         if image_path:
             image = cv2.imread(image_path)
-            image = infer_one_frame(image, model, yolo_model, facial_tracker)
+            image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
             cv2.imwrite('images/test_inferred.jpg', image)
         
         if video_path or cam_id is not None:
@@ -153,7 +173,7 @@ def infer(args):
                     cap.grab()  # Skip frame 2
                     cap.grab()  # Skip frame 3
                 
-                image = infer_one_frame(image, model, yolo_model, facial_tracker)
+                image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
                 
                 if save:
                     out.write(image)
