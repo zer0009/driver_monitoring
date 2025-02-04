@@ -58,7 +58,7 @@ eyes_signal = SignalHandler(EYES_CLOSED_PIN)
 yawn_signal = SignalHandler(YAWN_PIN)
 mobile_signal = SignalHandler(MOBILE_PIN)
 
-def infer_one_frame(image, interpreter, yolo_model, facial_tracker, save=False):
+def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     # Get input and output details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
@@ -67,29 +67,26 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker, save=False):
     yawn_status = ''
     action = ''
 
-    # Resize image before processing to reduce computation
-    small_frame = cv2.resize(image, (320, 240))
-    
-    facial_tracker.process_frame(small_frame)
+    facial_tracker.process_frame(image)
     if facial_tracker.detected:
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
 
-    # Convert to RGB only once
-    rgb_image = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-    
-    # Run YOLO inference on smaller image
-    with torch.no_grad():  # Disable gradient calculation
-        yolo_result = yolo_model(rgb_image)
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    yolo_result = yolo_model(rgb_image)
 
     # Prepare input data for TFLite
-    tflite_input = cv2.resize(rgb_image, (224, 224))
-    tflite_input = tf.expand_dims(tflite_input, 0)
-    tflite_input = tf.cast(tflite_input, tf.float32)
+    rgb_image = cv2.resize(rgb_image, (224,224))
+    rgb_image = tf.expand_dims(rgb_image, 0)
+    rgb_image = tf.cast(rgb_image, tf.float32)
 
-    interpreter.set_tensor(input_details[0]['index'], tflite_input)
+    # Set input tensor
+    interpreter.set_tensor(input_details[0]['index'], rgb_image)
+    
+    # Run inference
     interpreter.invoke()
     
+    # Get output tensor
     y = interpreter.get_tensor(output_details[0]['index'])
     result = np.argmax(y, axis=1)
 
@@ -98,15 +95,22 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker, save=False):
     yawn_signal.update(yawn_status == 'yawning')
     mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
 
-    # Draw results on the original frame
-    if not save:  # Only draw if we're displaying the frame
-        cv2.putText(image, f'Driver eyes: {eyes_status}', (10,20), 0, 0.6,
-                    conf.LM_COLOR, 1, lineType=cv2.LINE_AA)
-        cv2.putText(image, f'Driver mouth: {yawn_status}', (10,40), 0, 0.6,
-                    conf.CT_COLOR, 1, lineType=cv2.LINE_AA)
-        if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
-            cv2.putText(image, 'PHONE DETECTED!', (10,60), 0, 0.6,
-                        (0,0,255), 2, lineType=cv2.LINE_AA)
+    # Control GPIO based on detections
+    GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
+    GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
+    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
+
+    if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
+        action = list(ACTIONS.keys())[result[0]]
+    if result[0] == 1 and eyes_status == 'eye closed':
+        action = list(ACTIONS.keys())[result[0]]
+
+    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1,
+                conf.LM_COLOR, 2, lineType=cv2.LINE_AA)
+    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1,
+                conf.CT_COLOR, 2, lineType=cv2.LINE_AA)
+    cv2.putText(image, f'Driver action: {action}', (30,120), 0, 1,
+                conf.WARN_COLOR, 2, lineType=cv2.LINE_AA)
     
     return image
 
@@ -116,42 +120,39 @@ def infer(args):
         print("Starting DMS monitoring...")
         
         checkpoint = args.checkpoint
-        save = args.save  # Get save from args
         
         # Load TFLite model
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Optimize YOLO model further
+        # Replace YOLOv5s with YOLOv5n
         yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n')
         yolo_model.classes = [67]  # phone class
-        yolo_model.conf = 0.2      # Lower confidence threshold
-        yolo_model.iou = 0.4       # Lower IoU threshold
-        yolo_model.max_det = 1     # Only detect one phone
-        yolo_model.agnostic = True # Non-class specific NMS
-        yolo_model.imgsz = [160, 160]  # Reduced detection size
+        # Optional: Set inference size for even faster processing
+        yolo_model.conf = 0.25  # Lower confidence threshold for faster inference
+        yolo_model.iou = 0.45   # Lower IoU threshold
 
         image_path = args.image
         video_path = args.video
         cam_id = args.webcam
+        save = args.save
 
         facial_tracker = FacialTracker()
 
         if image_path:
             image = cv2.imread(image_path)
-            image = infer_one_frame(image, interpreter, yolo_model, facial_tracker, save)
+            image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
             cv2.imwrite('images/test_inferred.jpg', image)
         
         if video_path or cam_id is not None:
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                cap.set(3, 240)  # Even smaller width
-                cap.set(4, 180)  # Even smaller height
+                # Reduce resolution for faster processing
+                cap.set(3, 320)  # Reduced width
+                cap.set(4, 240)  # Reduced height
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS
-                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)  # Auto exposure
+                cap.set(cv2.CAP_PROP_FPS, 15)  # Reduced FPS
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
@@ -167,16 +168,17 @@ def infer(args):
                     break
 
                 if cam_id is not None:
-                    for _ in range(4):  # Skip 4 frames
-                        cap.grab()
+                    # Skip more frames for faster processing
+                    cap.grab()  # Skip frame 1
+                    cap.grab()  # Skip frame 2
+                    cap.grab()  # Skip frame 3
                 
-                image = infer_one_frame(image, interpreter, yolo_model, facial_tracker, save)
+                image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
                 
                 if save:
                     out.write(image)
                 else:
-                    display_img = cv2.resize(image, (320, 240))
-                    cv2.imshow('DMS', display_img)
+                    cv2.imshow('DMS', image)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         break
                 
@@ -187,6 +189,7 @@ def infer(args):
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
+        GPIO.cleanup()
     finally:
         GPIO.cleanup()
         print("GPIO cleaned up")
