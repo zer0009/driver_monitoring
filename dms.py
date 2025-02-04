@@ -67,26 +67,29 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     yawn_status = ''
     action = ''
 
-    facial_tracker.process_frame(image)
+    # Resize image before processing to reduce computation
+    small_frame = cv2.resize(image, (320, 240))
+    
+    facial_tracker.process_frame(small_frame)
     if facial_tracker.detected:
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
 
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    yolo_result = yolo_model(rgb_image)
+    # Convert to RGB only once
+    rgb_image = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+    
+    # Run YOLO inference on smaller image
+    with torch.no_grad():  # Disable gradient calculation
+        yolo_result = yolo_model(rgb_image)
 
     # Prepare input data for TFLite
-    rgb_image = cv2.resize(rgb_image, (224,224))
-    rgb_image = tf.expand_dims(rgb_image, 0)
-    rgb_image = tf.cast(rgb_image, tf.float32)
+    tflite_input = cv2.resize(rgb_image, (224, 224))
+    tflite_input = tf.expand_dims(tflite_input, 0)
+    tflite_input = tf.cast(tflite_input, tf.float32)
 
-    # Set input tensor
-    interpreter.set_tensor(input_details[0]['index'], rgb_image)
-    
-    # Run inference
+    interpreter.set_tensor(input_details[0]['index'], tflite_input)
     interpreter.invoke()
     
-    # Get output tensor
     y = interpreter.get_tensor(output_details[0]['index'])
     result = np.argmax(y, axis=1)
 
@@ -95,22 +98,15 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     yawn_signal.update(yawn_status == 'yawning')
     mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
 
-    # Control GPIO based on detections
-    GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
-    GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
-    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
-
-    if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
-        action = list(ACTIONS.keys())[result[0]]
-    if result[0] == 1 and eyes_status == 'eye closed':
-        action = list(ACTIONS.keys())[result[0]]
-
-    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1,
-                conf.LM_COLOR, 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1,
-                conf.CT_COLOR, 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver action: {action}', (30,120), 0, 1,
-                conf.WARN_COLOR, 2, lineType=cv2.LINE_AA)
+    # Draw results on the original frame
+    if not save:  # Only draw if we're displaying the frame
+        cv2.putText(image, f'Driver eyes: {eyes_status}', (10,20), 0, 0.6,
+                    conf.LM_COLOR, 1, lineType=cv2.LINE_AA)
+        cv2.putText(image, f'Driver mouth: {yawn_status}', (10,40), 0, 0.6,
+                    conf.CT_COLOR, 1, lineType=cv2.LINE_AA)
+        if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
+            cv2.putText(image, 'PHONE DETECTED!', (10,60), 0, 0.6,
+                        (0,0,255), 2, lineType=cv2.LINE_AA)
     
     return image
 
@@ -125,12 +121,16 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Replace YOLOv5s with YOLOv5n
+        # Optimize YOLO model further
         yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n')
         yolo_model.classes = [67]  # phone class
-        # Optional: Set inference size for even faster processing
-        yolo_model.conf = 0.25  # Lower confidence threshold for faster inference
-        yolo_model.iou = 0.45   # Lower IoU threshold
+        yolo_model.conf = 0.2      # Lower confidence threshold
+        yolo_model.iou = 0.4       # Lower IoU threshold
+        yolo_model.max_det = 1     # Only detect one phone
+        yolo_model.agnostic = True # Non-class specific NMS
+        
+        # Optional: Set smaller inference size
+        yolo_model.imgsz = [160, 160]  # Reduced detection size
 
         image_path = args.image
         video_path = args.video
@@ -148,11 +148,15 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                # Reduce resolution for faster processing
-                cap.set(3, 320)  # Reduced width
-                cap.set(4, 240)  # Reduced height
+                # Further reduce resolution and optimize camera settings
+                cap.set(3, 240)  # Even smaller width
+                cap.set(4, 180)  # Even smaller height
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 15)  # Reduced FPS
+                cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS
+                
+                # Additional camera optimizations
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)  # Auto exposure
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
@@ -168,17 +172,18 @@ def infer(args):
                     break
 
                 if cam_id is not None:
-                    # Skip more frames for faster processing
-                    cap.grab()  # Skip frame 1
-                    cap.grab()  # Skip frame 2
-                    cap.grab()  # Skip frame 3
+                    # Skip more frames
+                    for _ in range(4):  # Skip 4 frames
+                        cap.grab()
                 
                 image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
                 
                 if save:
                     out.write(image)
                 else:
-                    cv2.imshow('DMS', image)
+                    # Resize display window to be smaller
+                    display_img = cv2.resize(image, (320, 240))
+                    cv2.imshow('DMS', display_img)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         break
                 
