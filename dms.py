@@ -130,6 +130,8 @@ def infer(args):
             if cam_id is not None:
                 cap.set(3, conf.FRAME_W)
                 cap.set(4, conf.FRAME_H)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize frame buffer
+                cap.set(cv2.CAP_PROP_FPS, 30)  # Set target FPS
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
@@ -144,7 +146,11 @@ def infer(args):
                 if not success:
                     break
 
+                if cam_id is not None:
+                    cap.grab()  # Skip one frame to reduce processing load
+                
                 image = infer_one_frame(image, model, yolo_model, facial_tracker)
+                
                 if save:
                     out.write(image)
                 else:
