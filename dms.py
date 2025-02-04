@@ -180,8 +180,8 @@ def infer(args):
                     continue
                 
                 # Reduce resolution even further for Pi
-                display_width = 240  # Smaller display size
-                display_height = 180
+                display_width = 480  # Smaller display size
+                display_height = 360
                 
                 # Use INTER_NEAREST for faster resizing on Pi
                 frame = cv2.resize(frame, (320, 240), interpolation=cv2.INTER_NEAREST)
@@ -197,8 +197,8 @@ def infer(args):
                 cv2.namedWindow('DMS', cv2.WINDOW_NORMAL)
                 
                 if IS_RASPBERRY_PI:
-                    cv2.setWindowProperty('DMS', cv2.WND_PROP_FULLSCREEN, 
-                                        cv2.WINDOW_FULLSCREEN)
+                    cv2.resizeWindow('DMS', display_width, display_height)
+
                 else:
                     cv2.resizeWindow('DMS', 800, 600)
                     
