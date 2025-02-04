@@ -3,13 +3,20 @@ import cv2
 import numpy as np
 import torch
 import tensorflow as tf
-import RPi.GPIO as GPIO  # Add GPIO import
 import time
 
 from dms_utils.dms_utils import load_and_preprocess_image, ACTIONS
 from net import MobileNet
 from facial_tracking.facialTracking import FacialTracker
 import facial_tracking.conf as conf
+
+# Conditional GPIO import
+try:
+    import RPi.GPIO as GPIO
+    IS_RASPBERRY_PI = True
+except ImportError:
+    IS_RASPBERRY_PI = False
+    print("Running on PC - GPIO functionality disabled")
 
 # GPIO Setup
 EYES_CLOSED_PIN = 17  # GPIO pin for eyes closed
@@ -20,6 +27,15 @@ MOBILE_PIN = 22      # GPIO pin for mobile phone detection
 MIN_SIGNAL_DURATION = 2.0  # Minimum duration (seconds) before triggering alert
 SIGNAL_RESET_TIME = 1.0    # Time to wait before resetting signal
 
+# Enable GPU if available
+physical_devices = tf.config.list_physical_devices('GPU')
+if physical_devices:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+# Enable OpenCL acceleration for OpenCV
+if cv2.ocl.haveOpenCL():
+    cv2.ocl.setUseOpenCL(True)
+
 class SignalHandler:
     def __init__(self, pin):
         self.pin = pin
@@ -27,26 +43,30 @@ class SignalHandler:
         self.last_state = False
 
     def update(self, new_state):
-        if new_state and not self.last_state:  # Signal just became active
+        if not IS_RASPBERRY_PI:
+            return
+            
+        if new_state and not self.last_state:
             self.active_since = time.time()
-        elif not new_state and self.last_state:  # Signal just became inactive
+        elif not new_state and self.last_state:
             self.active_since = None
         
         self.last_state = new_state
         
-        # Only trigger if signal has been active for minimum duration
         if self.active_since and (time.time() - self.active_since) >= MIN_SIGNAL_DURATION:
             GPIO.output(self.pin, GPIO.HIGH)
         else:
             GPIO.output(self.pin, GPIO.LOW)
 
 def setup_gpio():
+    if not IS_RASPBERRY_PI:
+        return
+        
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
     GPIO.setup(YAWN_PIN, GPIO.OUT)
     GPIO.setup(MOBILE_PIN, GPIO.OUT)
     
-    # Initialize all pins to LOW
     GPIO.output(EYES_CLOSED_PIN, GPIO.LOW)
     GPIO.output(YAWN_PIN, GPIO.LOW)
     GPIO.output(MOBILE_PIN, GPIO.LOW)
@@ -82,9 +102,10 @@ def infer_one_frame(image, model, yolo_model, facial_tracker):
     mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
 
     # Control GPIO based on detections
-    GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
-    GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
-    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
+    if IS_RASPBERRY_PI:
+        GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
+        GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
+        GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
 
     if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
         action = list(ACTIONS.keys())[result[0]]
@@ -128,30 +149,50 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                cap.set(3, conf.FRAME_W)
-                cap.set(4, conf.FRAME_H)
+                # Optimize for Pi camera
+                cap.set(3, 320)  # Further reduced width for Pi
+                cap.set(4, 240)  # Further reduced height for Pi
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                cap.set(cv2.CAP_PROP_FPS, 15)  # Limit FPS for Pi
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
             fps = cap.get(cv2.CAP_PROP_FPS)
 
             if save:
-                out = cv2.VideoWriter('videos/output.avi',cv2.VideoWriter_fourcc('M','J','P','G'),
-                    fps, (frame_width,frame_height))
+                out = cv2.VideoWriter('videos/output.avi',
+                    cv2.VideoWriter_fourcc(*'MJPG'),
+                    fps/4,  # Further reduced output FPS for Pi
+                    (frame_width,frame_height))
             
-            while True:
-                success, image = cap.read()
-                if not success:
+            frame_count = 0
+            PROCESS_EVERY_N_FRAMES = 4  # Process every 4th frame for Pi
+            
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
                     break
-
-                image = infer_one_frame(image, model, yolo_model, facial_tracker)
+                    
+                frame_count += 1
+                
+                if frame_count % PROCESS_EVERY_N_FRAMES != 0:
+                    continue
+                
+                # Use INTER_NEAREST for faster resizing on Pi
+                frame = cv2.resize(frame, (320, 240), interpolation=cv2.INTER_NEAREST)
+                
+                image = infer_one_frame(frame, model, yolo_model, facial_tracker)
+                
                 if save:
                     out.write(image)
-                else:
+                elif not IS_RASPBERRY_PI:  # Only show window if not on Pi
+                    cv2.namedWindow('DMS', cv2.WINDOW_NORMAL)
+                    cv2.resizeWindow('DMS', 800, 600)
                     cv2.imshow('DMS', image)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                    if cv2.waitKey(5) & 0xFF == ord('q'):
                         break
-                
+            
             cap.release()
             if save:
                 out.release()
@@ -159,10 +200,12 @@ def infer(args):
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        GPIO.cleanup()
+        if IS_RASPBERRY_PI:
+            GPIO.cleanup()
     finally:
-        GPIO.cleanup()
-        print("GPIO cleaned up")
+        if IS_RASPBERRY_PI:
+            GPIO.cleanup()
+            print("GPIO cleaned up")
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
