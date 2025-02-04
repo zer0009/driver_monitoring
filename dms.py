@@ -100,17 +100,23 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
     GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
 
+    # Update the action detection logic
+    action = ''
     if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
-        action = list(ACTIONS.keys())[result[0]]
-    if result[0] == 1 and eyes_status == 'eye closed':
-        action = list(ACTIONS.keys())[result[0]]
+        action = "Mobile Phone Detected!"
+    elif eyes_status == 'eye closed':
+        action = "Warning: Eyes Closed!"
+    elif yawn_status == 'yawning':
+        action = "Warning: Yawning Detected!"
 
-    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1,
-                conf.LM_COLOR, 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1,
-                conf.CT_COLOR, 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver action: {action}', (30,120), 0, 1,
-                conf.WARN_COLOR, 2, lineType=cv2.LINE_AA)
+    # Update text display with more visible colors and clearer messages
+    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 0.7,
+                (0, 0, 255) if eyes_status == 'eye closed' else conf.LM_COLOR, 2, lineType=cv2.LINE_AA)
+    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 0.7,
+                (0, 0, 255) if yawn_status == 'yawning' else conf.CT_COLOR, 2, lineType=cv2.LINE_AA)
+    if action:  # Only display action text if there's a warning
+        cv2.putText(image, action, (30,120), 0, 0.7,
+                    (0, 0, 255), 2, lineType=cv2.LINE_AA)
     
     return image
 
