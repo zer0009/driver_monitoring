@@ -75,6 +75,9 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
 
+    # Convert to RGB once for both YOLO and TFLite
+    rgb_image = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
     # Only run YOLO inference every few frames
     if hasattr(infer_one_frame, 'frame_count'):
         infer_one_frame.frame_count += 1
@@ -83,7 +86,6 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
 
     # Run YOLO every 3 frames
     if infer_one_frame.frame_count % 3 == 0:
-        rgb_image = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         with torch.no_grad():  # Disable gradient calculation
             yolo_result = yolo_model(rgb_image)
             has_phone = len(yolo_result.xyxy[0]) > 0
