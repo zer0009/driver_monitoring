@@ -125,12 +125,12 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Replace model loading
-        # model = MobileNet()
-        # model.load_weights(checkpoint)
-
-        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
-        yolo_model.classes = [67]
+        # Replace YOLOv5s with YOLOv5n
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n')
+        yolo_model.classes = [67]  # phone class
+        # Optional: Set inference size for even faster processing
+        yolo_model.conf = 0.25  # Lower confidence threshold for faster inference
+        yolo_model.iou = 0.45   # Lower IoU threshold
 
         image_path = args.image
         video_path = args.video
