@@ -167,7 +167,7 @@ def infer(args):
                     (frame_width,frame_height))
             
             frame_count = 0
-            PROCESS_EVERY_N_FRAMES = 4  # Process every 4th frame for Pi
+            PROCESS_EVERY_N_FRAMES = 8  # Increased from 4 to 8 for better performance
             
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -179,6 +179,10 @@ def infer(args):
                 if frame_count % PROCESS_EVERY_N_FRAMES != 0:
                     continue
                 
+                # Reduce resolution even further for Pi
+                display_width = 240  # Smaller display size
+                display_height = 180
+                
                 # Use INTER_NEAREST for faster resizing on Pi
                 frame = cv2.resize(frame, (320, 240), interpolation=cv2.INTER_NEAREST)
                 
@@ -187,11 +191,21 @@ def infer(args):
                 if save:
                     out.write(image)
                 
-                # Show window on both Pi and PC
+                # Optimize display for Pi
+                display_frame = cv2.resize(image, (display_width, display_height), 
+                                        interpolation=cv2.INTER_NEAREST)
                 cv2.namedWindow('DMS', cv2.WINDOW_NORMAL)
-                cv2.resizeWindow('DMS', 800, 600)
-                cv2.imshow('DMS', image)
-                if cv2.waitKey(5) & 0xFF == ord('q'):
+                
+                if IS_RASPBERRY_PI:
+                    cv2.setWindowProperty('DMS', cv2.WND_PROP_FULLSCREEN, 
+                                        cv2.WINDOW_FULLSCREEN)
+                else:
+                    cv2.resizeWindow('DMS', 800, 600)
+                    
+                cv2.imshow('DMS', display_frame)
+                
+                # Reduce wait time for better performance
+                if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
             
             cap.release()
