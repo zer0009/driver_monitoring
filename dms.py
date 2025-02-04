@@ -152,7 +152,6 @@ def infer(args):
                 # Optimize for Pi camera
                 cap.set(3, 320)  # Further reduced width for Pi
                 cap.set(4, 240)  # Further reduced height for Pi
-                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 cap.set(cv2.CAP_PROP_FPS, 15)  # Limit FPS for Pi
             
