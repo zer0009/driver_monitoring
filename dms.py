@@ -59,26 +59,22 @@ yawn_signal = SignalHandler(YAWN_PIN)
 mobile_signal = SignalHandler(MOBILE_PIN)
 
 def infer_one_frame(image, model, yolo_model, facial_tracker):
-    # Resize image once at the beginning
-    small_image = cv2.resize(image, (224, 224))
-    rgb_small = cv2.cvtColor(small_image, cv2.COLOR_BGR2RGB)
-    
-    # Use smaller image for YOLO detection
-    yolo_result = yolo_model(rgb_small)
-    
-    # Use the already prepared RGB image for model prediction
-    model_input = tf.expand_dims(rgb_small, 0)
-    y = model.predict(model_input)
-    result = np.argmax(y, axis=1)
+    eyes_status = ''
+    yawn_status = ''
+    action = ''
 
-    # Process original size image only for facial tracking and display
     facial_tracker.process_frame(image)
     if facial_tracker.detected:
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
-    else:
-        eyes_status = ''
-        yawn_status = ''
+
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    yolo_result = yolo_model(rgb_image)
+
+    rgb_image = cv2.resize(rgb_image, (224,224))
+    rgb_image = tf.expand_dims(rgb_image, 0)
+    y = model.predict(rgb_image)
+    result = np.argmax(y, axis=1)
 
     # Update signals with current states
     eyes_signal.update(eyes_status == 'eye closed')
