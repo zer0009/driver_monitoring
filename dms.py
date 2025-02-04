@@ -58,7 +58,7 @@ eyes_signal = SignalHandler(EYES_CLOSED_PIN)
 yawn_signal = SignalHandler(YAWN_PIN)
 mobile_signal = SignalHandler(MOBILE_PIN)
 
-def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
+def infer_one_frame(image, interpreter, yolo_model, facial_tracker, save=False):
     # Get input and output details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
@@ -116,6 +116,7 @@ def infer(args):
         print("Starting DMS monitoring...")
         
         checkpoint = args.checkpoint
+        save = args.save  # Get save from args
         
         # Load TFLite model
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
@@ -128,33 +129,27 @@ def infer(args):
         yolo_model.iou = 0.4       # Lower IoU threshold
         yolo_model.max_det = 1     # Only detect one phone
         yolo_model.agnostic = True # Non-class specific NMS
-        
-        # Optional: Set smaller inference size
         yolo_model.imgsz = [160, 160]  # Reduced detection size
 
         image_path = args.image
         video_path = args.video
         cam_id = args.webcam
-        save = args.save
 
         facial_tracker = FacialTracker()
 
         if image_path:
             image = cv2.imread(image_path)
-            image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
+            image = infer_one_frame(image, interpreter, yolo_model, facial_tracker, save)
             cv2.imwrite('images/test_inferred.jpg', image)
         
         if video_path or cam_id is not None:
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                # Further reduce resolution and optimize camera settings
                 cap.set(3, 240)  # Even smaller width
                 cap.set(4, 180)  # Even smaller height
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS
-                
-                # Additional camera optimizations
                 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                 cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)  # Auto exposure
             
@@ -172,16 +167,14 @@ def infer(args):
                     break
 
                 if cam_id is not None:
-                    # Skip more frames
                     for _ in range(4):  # Skip 4 frames
                         cap.grab()
                 
-                image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
+                image = infer_one_frame(image, interpreter, yolo_model, facial_tracker, save)
                 
                 if save:
                     out.write(image)
                 else:
-                    # Resize display window to be smaller
                     display_img = cv2.resize(image, (320, 240))
                     cv2.imshow('DMS', display_img)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -194,7 +187,6 @@ def infer(args):
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        GPIO.cleanup()
     finally:
         GPIO.cleanup()
         print("GPIO cleaned up")
