@@ -67,32 +67,13 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     yawn_status = ''
     action = ''
 
-    # Downscale image for faster processing
-    small_frame = cv2.resize(image, (240, 180))
-    
-    facial_tracker.process_frame(small_frame)
+    facial_tracker.process_frame(image)
     if facial_tracker.detected:
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
 
-    # Convert to RGB once for both YOLO and TFLite
-    rgb_image = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-    # Only run YOLO inference every few frames
-    if hasattr(infer_one_frame, 'frame_count'):
-        infer_one_frame.frame_count += 1
-    else:
-        infer_one_frame.frame_count = 0
-
-    # Run YOLO every 3 frames
-    if infer_one_frame.frame_count % 3 == 0:
-        with torch.no_grad():  # Disable gradient calculation
-            yolo_result = yolo_model(rgb_image)
-            has_phone = len(yolo_result.xyxy[0]) > 0
-    else:
-        has_phone = getattr(infer_one_frame, 'last_phone_status', False)
-    
-    infer_one_frame.last_phone_status = has_phone
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    yolo_result = yolo_model(rgb_image)
 
     # Prepare input data for TFLite
     rgb_image = cv2.resize(rgb_image, (224,224))
@@ -112,16 +93,16 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     # Update signals with current states
     eyes_signal.update(eyes_status == 'eye closed')
     yawn_signal.update(yawn_status == 'yawning')
-    mobile_signal.update(result[0] == 0 and has_phone)
+    mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
 
     # Control GPIO based on detections
     GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
     GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
-    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and has_phone) else GPIO.LOW)
+    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
 
     # Update the action detection logic
     action = ''
-    if result[0] == 0 and has_phone:
+    if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
         action = "Mobile Phone Detected!"
     elif eyes_status == 'eye closed':
         action = "Warning: Eyes Closed!"
