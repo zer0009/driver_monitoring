@@ -179,8 +179,8 @@ def infer(args):
                     continue
                 
                 # Reduce resolution even further for Pi
-                display_width = 480  # Smaller display size
-                display_height = 360
+                display_width = 960  # Increased from 480
+                display_height = 720 # Increased from 360
                 
                 # Use INTER_NEAREST for faster resizing on Pi
                 frame = cv2.resize(frame, (320, 240), interpolation=cv2.INTER_NEAREST)
@@ -197,9 +197,8 @@ def infer(args):
                 
                 if IS_RASPBERRY_PI:
                     cv2.resizeWindow('DMS', display_width, display_height)
-
                 else:
-                    cv2.resizeWindow('DMS', 800, 600)
+                    cv2.resizeWindow('DMS', 1280, 960)  # Increased from 800x600
                     
                 cv2.imshow('DMS', display_frame)
                 
