@@ -67,13 +67,30 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     yawn_status = ''
     action = ''
 
-    facial_tracker.process_frame(image)
+    # Downscale image for faster processing
+    small_frame = cv2.resize(image, (240, 180))
+    
+    facial_tracker.process_frame(small_frame)
     if facial_tracker.detected:
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
 
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    yolo_result = yolo_model(rgb_image)
+    # Only run YOLO inference every few frames
+    if hasattr(infer_one_frame, 'frame_count'):
+        infer_one_frame.frame_count += 1
+    else:
+        infer_one_frame.frame_count = 0
+
+    # Run YOLO every 3 frames
+    if infer_one_frame.frame_count % 3 == 0:
+        rgb_image = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+        with torch.no_grad():  # Disable gradient calculation
+            yolo_result = yolo_model(rgb_image)
+            has_phone = len(yolo_result.xyxy[0]) > 0
+    else:
+        has_phone = getattr(infer_one_frame, 'last_phone_status', False)
+    
+    infer_one_frame.last_phone_status = has_phone
 
     # Prepare input data for TFLite
     rgb_image = cv2.resize(rgb_image, (224,224))
@@ -93,16 +110,16 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     # Update signals with current states
     eyes_signal.update(eyes_status == 'eye closed')
     yawn_signal.update(yawn_status == 'yawning')
-    mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
+    mobile_signal.update(result[0] == 0 and has_phone)
 
     # Control GPIO based on detections
     GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
     GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
-    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
+    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and has_phone) else GPIO.LOW)
 
     # Update the action detection logic
     action = ''
-    if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
+    if result[0] == 0 and has_phone:
         action = "Mobile Phone Detected!"
     elif eyes_status == 'eye closed':
         action = "Warning: Eyes Closed!"
@@ -131,13 +148,18 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Replace YOLOv5s with YOLOv5n
-        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n')
+        # Configure YOLOv5 for CPU usage
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu')
         yolo_model.classes = [67]  # phone class
-        # Adjust detection parameters for better sensitivity
-        yolo_model.conf = 0.15    # Lower confidence threshold for more sensitive detection
-        yolo_model.iou = 0.35     # Lower IoU threshold
-        yolo_model.max_det = 10   # Increase maximum detections per image
+        yolo_model.conf = 0.15
+        yolo_model.iou = 0.35
+        yolo_model.max_det = 10
+        # Force model to eval mode and CPU
+        yolo_model.eval()
+        yolo_model = yolo_model.cpu()
+
+        # Disable gradients for inference
+        torch.set_grad_enabled(False)
 
         image_path = args.image
         video_path = args.video
@@ -155,11 +177,11 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                # Reduce resolution for faster processing
-                cap.set(3, 320)  # Reduced width
-                cap.set(4, 240)  # Reduced height
+                # Further reduce resolution for Raspberry Pi
+                cap.set(3, 240)  # Even smaller width
+                cap.set(4, 180)  # Even smaller height
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 15)  # Reduced FPS
+                cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS for Pi
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
