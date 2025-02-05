@@ -127,21 +127,39 @@ def infer(args):
         
         checkpoint = args.checkpoint
         
-        # Validate TFLite model before loading
+        # Check file extension to determine model type
+        is_tflite = checkpoint.lower().endswith('.tflite')
+        
         try:
-            with open(checkpoint, 'rb') as f:
-                # Check if file starts with TFLite magic number
-                magic_number = f.read(4)
-                if magic_number != b'TFL3':
-                    raise ValueError(f"Invalid TFLite model format. Please ensure the model is a valid TFLite model.")
-            
-            # Load TFLite model
-            interpreter = tf.lite.Interpreter(model_path=checkpoint)
-            interpreter.allocate_tensors()
+            if is_tflite:
+                print("Loading TFLite model...")
+                interpreter = tf.lite.Interpreter(model_path=checkpoint)
+                interpreter.allocate_tensors()
+            else:
+                print("Loading Keras/TensorFlow model...")
+                model = tf.keras.models.load_model(checkpoint)
+                # Create wrapper function to match TFLite interface
+                class ModelWrapper:
+                    def __init__(self, model):
+                        self.model = model
+                        self.input_details = [{'index': 0}]
+                        self.output_details = [{'index': 0}]
+                    
+                    def set_tensor(self, _, data):
+                        self.input_data = data
+                    
+                    def invoke(self):
+                        self.output = self.model.predict(self.input_data, verbose=0)
+                    
+                    def get_tensor(self, _):
+                        return self.output
+                
+                interpreter = ModelWrapper(model)
+                
         except IOError as e:
             raise IOError(f"Error loading model file '{checkpoint}': {str(e)}")
         except Exception as e:
-            raise ValueError(f"Error initializing TFLite model: {str(e)}")
+            raise ValueError(f"Error initializing model: {str(e)}")
 
         # Replace YOLOv5 with YOLOv5-Lite-s model
         try:
