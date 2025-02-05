@@ -1,6 +1,5 @@
 .DS_Store
 *.pyc
-*.pt
 *.mp4
 *.avi
 venv/
