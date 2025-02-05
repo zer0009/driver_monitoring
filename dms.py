@@ -5,6 +5,7 @@ import torch
 import tensorflow as tf
 import RPi.GPIO as GPIO  # Add GPIO import
 import time
+import warnings
 
 from dms_utils.dms_utils import load_and_preprocess_image, ACTIONS
 from net import MobileNet
@@ -107,9 +108,21 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     y = interpreter.get_tensor(output_details[0]['index'])
     result = np.argmax(y, axis=1)
 
-    # Update signals with current states
+    # Add debug prints for detections
+    print("\n--- Detection Status ---")
+    print(f"Eyes Status: {eyes_status}")
+    print(f"Yawn Status: {yawn_status}")
+    print(f"Phone Detected: {phone_detected}")
+
+    # Update signals with current states and add debug prints
+    print("\n--- Signal Updates ---")
+    print("Checking eyes closed signal...")
     eyes_signal.update(eyes_status == 'eye closed')
+    
+    print("Checking yawn signal...")
     yawn_signal.update(yawn_status == 'yawning')
+    
+    print("Checking mobile signal...")
     mobile_signal.update(result[0] == 0 and phone_detected)
 
     # Update the action detection logic
@@ -154,18 +167,22 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Configure YOLOv5 for CPU usage
-        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu', force_reload=False)
+        # Modified YOLOv5 loading to avoid CUDA warnings
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
         yolo_model.classes = [67]  # phone class
-        yolo_model.conf = 0.35     # Increased confidence threshold for more reliable detections
-        yolo_model.iou = 0.45      # Increased IOU threshold
-        yolo_model.max_det = 5     # Reduced maximum detections for better performance
-        # Force model to eval mode and CPU
-        yolo_model.eval()
+        yolo_model.conf = 0.35     
+        yolo_model.iou = 0.45      
+        yolo_model.max_det = 2     
+        # Force CPU mode
         yolo_model = yolo_model.cpu()
+        yolo_model.eval()
 
-        # Disable gradients for inference
+        # Disable gradients and set to CPU only mode
         torch.set_grad_enabled(False)
+        
+        # Add this to suppress CUDA warnings
+        warnings.filterwarnings('ignore', category=FutureWarning)
+        warnings.filterwarnings('ignore', category=UserWarning)
 
         image_path = args.image
         video_path = args.video

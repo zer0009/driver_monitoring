@@ -63,7 +63,29 @@ void setup() {
     Serial.begin(115200);
     delay(2000);  // Wait for Serial to be ready
     
-    Serial.println("\n\n----- DMS Arduino Test Starting -----");
+    Serial.println("\n\n----- DMS Arduino Starting -----");
+    
+    // Initialize input pins
+    pinMode(SIGNAL_EYES_CLOSED, INPUT);
+    pinMode(SIGNAL_YAWNING, INPUT);
+    pinMode(SIGNAL_PHONE_USE, INPUT);
+    
+    // Print initial pin states
+    Serial.println("\nInitial Pin States:");
+    Serial.print("Eyes Closed Pin (");
+    Serial.print(SIGNAL_EYES_CLOSED);
+    Serial.print("): ");
+    Serial.println(digitalRead(SIGNAL_EYES_CLOSED));
+    
+    Serial.print("Yawning Pin (");
+    Serial.print(SIGNAL_YAWNING);
+    Serial.print("): ");
+    Serial.println(digitalRead(SIGNAL_YAWNING));
+    
+    Serial.print("Phone Use Pin (");
+    Serial.print(SIGNAL_PHONE_USE);
+    Serial.print("): ");
+    Serial.println(digitalRead(SIGNAL_PHONE_USE));
     
     // Setup LED
     pinMode(DEBUG_LED, OUTPUT);
@@ -81,15 +103,14 @@ void setup() {
 }
 
 void loop() {
-    // Missing input checks! Add:
+    // Check all signals and print states
+    Serial.println("\n----- Checking Signals -----");
     for(int i = 0; i < 3; i++) {
         checkSignal(i);
     }
     
-    Serial.println("\n----- Testing GSM Every 10 Seconds -----");
-    testGSM();
-    blinkLED(2);  // Blink twice to show we're alive
-    delay(10000);  // Wait 10 seconds between tests
+    // Reduced delay for more responsive checking
+    delay(1000);  // Check every second instead of 10 seconds
 }
 
 void testGSM() {
@@ -131,9 +152,18 @@ void checkSignal(int signalIndex) {
     // Read digital value with debouncing
     bool reading = digitalRead(signal.pin);
     
+    // Print current reading
+    Serial.print("Signal ");
+    Serial.print(signalIndex);
+    Serial.print(" (Pin ");
+    Serial.print(signal.pin);
+    Serial.print("): ");
+    Serial.println(reading ? "HIGH" : "LOW");
+    
     // If the state changed, reset debounce timer
     if (reading != signal.lastState) {
         signal.lastDebounceTime = millis();
+        Serial.println("State changed - debouncing...");
     }
     
     // Check if debounce period has passed
@@ -142,17 +172,11 @@ void checkSignal(int signalIndex) {
         if (reading != signal.currentState) {
             signal.currentState = reading;
             
-            // Add debug print
-            Serial.print("Signal ");
-            Serial.print(signalIndex);
-            Serial.print(" state changed to: ");
-            Serial.println(reading ? "HIGH" : "LOW");
-            
             if (reading && (millis() - signal.lastAlertTime > ALERT_COOLDOWN)) {
                 signal.lastAlertTime = millis();
-                digitalWrite(DEBUG_LED, LOW);  // LED on
+                Serial.print("ALERT TRIGGERED for signal ");
+                Serial.println(signalIndex);
                 sendAlert(signalIndex);
-                digitalWrite(DEBUG_LED, HIGH); // LED off
             }
         }
     }
@@ -161,8 +185,7 @@ void checkSignal(int signalIndex) {
 }
 
 void sendAlert(int alertIndex) {
-    // Add alert type print
-    Serial.print("Attempting to send alert: ");
+    Serial.print("\nPreparing to send alert: ");
     Serial.println(ALERTS[alertIndex]);
     
     if (!gps.location.isValid()) {
@@ -171,10 +194,13 @@ void sendAlert(int alertIndex) {
     }
     
     String message = createAlertMessage(ALERTS[alertIndex]);
+    Serial.println("Message content:");
+    Serial.println(message);
     
     // Visual feedback before sending
     digitalWrite(DEBUG_LED, LOW);  // LED on
     
+    Serial.println("Sending SMS...");
     // Send SMS with error checking
     gsmSerial.println("AT+CMGS=\"" + PHONE_NUMBER + "\"");
     delay(1000);
@@ -182,7 +208,11 @@ void sendAlert(int alertIndex) {
     delay(100);
     gsmSerial.write(26);  // CTRL+Z to send
     
-    Serial.println("Alert sent: " + message);
+    Serial.println("SMS command sent, waiting for response...");
+    delay(5000);  // Wait for GSM response
+    printGSMResponse();  // Print any response from the GSM module
+    
+    Serial.println("Alert process completed");
     
     // Visual feedback after sending
     digitalWrite(DEBUG_LED, HIGH);  // LED off
