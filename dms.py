@@ -134,8 +134,7 @@ def infer(args):
         # Load YOLOv5-Lite model with force reload
         yolo_model = torch.hub.load('ultralytics/yolov5:v5.0', 'custom', 'models/v5lite-s.pt',
                                   force_reload=True,
-                                  trust_repo=True,
-                                  _verbose=False)
+                                  trust_repo=True)
         yolo_model.conf = 0.4     # Increased confidence threshold
         yolo_model.iou = 0.45     # Increased IOU threshold
         yolo_model.classes = [67]  # phone class
