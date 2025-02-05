@@ -5,7 +5,6 @@ import torch
 import tensorflow as tf
 import RPi.GPIO as GPIO  # Add GPIO import
 import time
-from ultralytics import YOLO
 
 from dms_utils.dms_utils import load_and_preprocess_image, ACTIONS
 from net import MobileNet
@@ -42,7 +41,6 @@ class SignalHandler:
             GPIO.output(self.pin, GPIO.LOW)
 
 def setup_gpio():
-    GPIO.setwarnings(False)  # Add this to suppress channel warnings
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
     GPIO.setup(YAWN_PIN, GPIO.OUT)
@@ -133,12 +131,19 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Load YOLOv5-Lite model using YOLO class
-        yolo_model = YOLO('models/v5lite-s.pt')
-        yolo_model.conf = 0.4     # Confidence threshold
-        yolo_model.iou = 0.45     # IOU threshold
-        yolo_model.classes = [67] # phone class
+        # Load YOLOv5-Lite model with force reload
+        yolo_model = torch.hub.load('ultralytics/yolov5:v5.0', 'custom', 'models/v5lite-s.pt',
+                                  force_reload=True,
+                                  trust_repo=True,
+                                  _verbose=False)
+        yolo_model.conf = 0.4     # Increased confidence threshold
+        yolo_model.iou = 0.45     # Increased IOU threshold
+        yolo_model.classes = [67]  # phone class
         yolo_model.max_det = 1    # Only detect one phone at a time
+        
+        # Force model to eval mode
+        yolo_model.eval()
+        yolo_model = yolo_model.cpu()
         
         # Disable gradients for inference
         torch.set_grad_enabled(False)
