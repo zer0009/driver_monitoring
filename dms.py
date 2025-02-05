@@ -75,6 +75,17 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     yolo_result = yolo_model(rgb_image)
 
+    # Draw bounding boxes for detected phones
+    if yolo_result.xyxy[0].shape[0] > 0:
+        for detection in yolo_result.xyxy[0]:
+            x1, y1, x2, y2, conf, cls = detection.cpu().numpy()
+            # Draw rectangle around phone
+            cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+            # Add confidence score
+            conf_text = f'Phone: {conf:.2f}'
+            cv2.putText(image, conf_text, (int(x1), int(y1)-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                       0.5, (0, 0, 255), 2)
+
     # Prepare input data for TFLite
     rgb_image = cv2.resize(rgb_image, (224,224))
     rgb_image = tf.expand_dims(rgb_image, 0)
