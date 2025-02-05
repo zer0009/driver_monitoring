@@ -74,9 +74,10 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
 
     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     yolo_result = yolo_model(rgb_image)
+    phone_detected = len(yolo_result.xyxy[0]) > 0  # Flag for phone detection
 
     # Draw bounding boxes for detected phones
-    if len(yolo_result.xyxy[0]) > 0:
+    if phone_detected:
         for detection in yolo_result.xyxy[0]:
             if len(detection) >= 6:  # Ensure we have all required values
                 x1, y1, x2, y2, confidence, class_id = detection.cpu().numpy()
@@ -105,16 +106,16 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     # Update signals with current states
     eyes_signal.update(eyes_status == 'eye closed')
     yawn_signal.update(yawn_status == 'yawning')
-    mobile_signal.update(result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0)
+    mobile_signal.update(result[0] == 0 and phone_detected)
 
     # Control GPIO based on detections
     GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
     GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
-    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else GPIO.LOW)
+    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and phone_detected) else GPIO.LOW)
 
     # Update the action detection logic
     action = ''
-    if result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0:
+    if result[0] == 0 and phone_detected:
         action = "Mobile Phone Detected!"
     elif eyes_status == 'eye closed':
         action = "Warning: Eyes Closed!"
@@ -122,16 +123,20 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
         action = "Warning: Yawning Detected!"
 
     # Update text display with more visible colors and clearer messages
-    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1.0,  # Increased size
+    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1.0,
                 (0, 0, 255) if eyes_status == 'eye closed' else (0, 255, 0), 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1.0,  # Increased size
+    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1.0,
                 (0, 0, 255) if yawn_status == 'yawning' else (0, 255, 0), 2, lineType=cv2.LINE_AA)
     
-    # Make mobile phone detection status more prominent
-    has_phone = result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0
-    mobile_status = "MOBILE PHONE DETECTED!" if has_phone else "No Mobile Phone"
-    cv2.putText(image, f'Mobile Status: {mobile_status}', (30,120), 0, 1.0,  # Increased size
-                (0, 0, 255) if has_phone else (0, 255, 0), 3, lineType=cv2.LINE_AA)  # Thicker text
+    # Simplified phone detection logic
+    mobile_status = "MOBILE PHONE DETECTED!" if phone_detected else "No Mobile Phone"
+    cv2.putText(image, f'Mobile Status: {mobile_status}', (30,120), 0, 1.0,
+                (0, 0, 255) if phone_detected else (0, 255, 0), 3, lineType=cv2.LINE_AA)
+    
+    # Add debug information
+    if phone_detected:
+        debug_info = f"Detections: {len(yolo_result.xyxy[0])}"
+        cv2.putText(image, debug_info, (30,200), 0, 1.0, (255, 0, 0), 2, lineType=cv2.LINE_AA)
     
     if action:  # Display additional warning if needed
         cv2.putText(image, action, (30,160), 0, 1.0,  # Increased size
