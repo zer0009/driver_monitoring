@@ -41,6 +41,7 @@ class SignalHandler:
             GPIO.output(self.pin, GPIO.LOW)
 
 def setup_gpio():
+    GPIO.setwarnings(False)  # Add this line to disable warnings
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
     GPIO.setup(YAWN_PIN, GPIO.OUT)
@@ -131,16 +132,22 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Add safe globals for numpy arrays
-        torch.serialization.add_safe_globals(['numpy.core.multiarray._reconstruct'])
+        # Modified YOLO model loading
+        try:
+            print("Attempting to load YOLOv5 model...")
+            yolo_model = torch.hub.load('ultralytics/yolov5', 'custom', 
+                                      path='models/v5lite-s.pt',
+                                      force_reload=True,
+                                      trust_repo=True)
+        except Exception as e:
+            print(f"First loading attempt failed: {str(e)}")
+            try:
+                print("Attempting alternative loading method...")
+                yolo_model = torch.load('models/v5lite-s.pt', weights_only=False)
+            except Exception as e:
+                print(f"Alternative loading failed: {str(e)}")
+                raise Exception("Failed to load YOLO model")
 
-        # Load YOLOv5-Lite model with force reload
-        yolo_model = torch.hub.load('ultralytics/yolov5:v5.0', 'custom', 'models/v5lite-s.pt',
-                                  force_reload=True,
-                                  trust_repo=True)
-        # Alternative loading method if above still fails
-        # yolo_model = torch.load('models/v5lite-s.pt', weights_only=False)  # Use with caution
-        
         yolo_model.conf = 0.4
         yolo_model.iou = 0.45     # Increased IOU threshold
         yolo_model.classes = [67]  # phone class
