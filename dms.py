@@ -41,6 +41,7 @@ class SignalHandler:
             GPIO.output(self.pin, GPIO.LOW)
 
 def setup_gpio():
+    GPIO.setwarnings(False)  # Add this to suppress channel warnings
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
     GPIO.setup(YAWN_PIN, GPIO.OUT)
@@ -132,8 +133,8 @@ def infer(args):
         interpreter.allocate_tensors()
 
         # Load YOLOv5-Lite model with force reload
-        yolo_model = torch.hub.load('ultralytics/yolov5:v5.0', 'custom',  # Use v5.0 release
-                                  path='models/v5lite-s.pt',
+        yolo_model = torch.hub.load('ultralytics/yolov5:v5.0', 'custom', 
+                                  weights='models/v5lite-s.pt',  # Changed from path to weights
                                   force_reload=True,
                                   trust_repo=True,
                                   _verbose=False)
