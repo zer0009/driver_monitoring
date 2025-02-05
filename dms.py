@@ -122,19 +122,20 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
         action = "Warning: Yawning Detected!"
 
     # Update text display with more visible colors and clearer messages
-    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 0.7,
-                (0, 0, 255) if eyes_status == 'eye closed' else conf.LM_COLOR, 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 0.7,
-                (0, 0, 255) if yawn_status == 'yawning' else conf.CT_COLOR, 2, lineType=cv2.LINE_AA)
+    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1.0,  # Increased size
+                (0, 0, 255) if eyes_status == 'eye closed' else (0, 255, 0), 2, lineType=cv2.LINE_AA)
+    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1.0,  # Increased size
+                (0, 0, 255) if yawn_status == 'yawning' else (0, 255, 0), 2, lineType=cv2.LINE_AA)
     
-    # Always display mobile phone status
-    mobile_status = "Mobile Phone Detected!" if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else "No Mobile Phone"
-    cv2.putText(image, f'Mobile Status: {mobile_status}', (30,120), 0, 0.7,
-                (0, 0, 255) if "Detected" in mobile_status else (0, 255, 0), 2, lineType=cv2.LINE_AA)
+    # Make mobile phone detection status more prominent
+    has_phone = result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0
+    mobile_status = "MOBILE PHONE DETECTED!" if has_phone else "No Mobile Phone"
+    cv2.putText(image, f'Mobile Status: {mobile_status}', (30,120), 0, 1.0,  # Increased size
+                (0, 0, 255) if has_phone else (0, 255, 0), 3, lineType=cv2.LINE_AA)  # Thicker text
     
     if action:  # Display additional warning if needed
-        cv2.putText(image, action, (30,160), 0, 0.7,
-                    (0, 0, 255), 2, lineType=cv2.LINE_AA)
+        cv2.putText(image, action, (30,160), 0, 1.0,  # Increased size
+                    (0, 0, 255), 3, lineType=cv2.LINE_AA)  # Thicker text
     
     return image
 
@@ -152,7 +153,7 @@ def infer(args):
         # Configure YOLOv5 for CPU usage
         yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu', force_reload=False)
         yolo_model.classes = [67]  # phone class
-        yolo_model.conf = 0.25     # Increased confidence threshold for more reliable detections
+        yolo_model.conf = 0.35     # Increased confidence threshold for more reliable detections
         yolo_model.iou = 0.45      # Increased IOU threshold
         yolo_model.max_det = 5     # Reduced maximum detections for better performance
         # Force model to eval mode and CPU
