@@ -41,7 +41,6 @@ class SignalHandler:
             GPIO.output(self.pin, GPIO.LOW)
 
 def setup_gpio():
-    GPIO.setwarnings(False)  # Add this line to disable warnings
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(EYES_CLOSED_PIN, GPIO.OUT)
     GPIO.setup(YAWN_PIN, GPIO.OUT)
@@ -132,31 +131,16 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Modified YOLO model loading
-        try:
-            print("Attempting to load YOLOv5 model...")
-            yolo_model = torch.hub.load('ultralytics/yolov5', 'custom', 
-                                      path='models/v5lite-s.pt',
-                                      force_reload=True,
-                                      trust_repo=True)
-        except Exception as e:
-            print(f"First loading attempt failed: {str(e)}")
-            try:
-                print("Attempting alternative loading method...")
-                yolo_model = torch.load('models/v5lite-s.pt', weights_only=False)
-            except Exception as e:
-                print(f"Alternative loading failed: {str(e)}")
-                raise Exception("Failed to load YOLO model")
-
-        yolo_model.conf = 0.4
-        yolo_model.iou = 0.45     # Increased IOU threshold
+        # Configure YOLOv5 for CPU usage
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu')
         yolo_model.classes = [67]  # phone class
-        yolo_model.max_det = 1    # Only detect one phone at a time
-        
-        # Force model to eval mode
+        yolo_model.conf = 0.15
+        yolo_model.iou = 0.35
+        yolo_model.max_det = 10
+        # Force model to eval mode and CPU
         yolo_model.eval()
         yolo_model = yolo_model.cpu()
-        
+
         # Disable gradients for inference
         torch.set_grad_enabled(False)
 
@@ -176,11 +160,11 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                # Optimize camera settings for Pi
-                cap.set(3, 320)  # Width
-                cap.set(4, 320)  # Height - use square input
+                # Further reduce resolution for Raspberry Pi
+                cap.set(3, 240)  # Even smaller width
+                cap.set(4, 180)  # Even smaller height
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 15)  # Reduced but stable FPS
+                cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS for Pi
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
@@ -217,11 +201,9 @@ def infer(args):
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        if 'gpio_initialized' in locals():  # Only cleanup if GPIO was initialized
-            GPIO.cleanup()
+        GPIO.cleanup()
     finally:
-        if 'gpio_initialized' in locals():  # Check if GPIO was initialized
-            GPIO.cleanup()
+        GPIO.cleanup()
         print("GPIO cleaned up")
 
 if __name__ == '__main__':
