@@ -76,15 +76,16 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     yolo_result = yolo_model(rgb_image)
 
     # Draw bounding boxes for detected phones
-    if yolo_result.xyxy[0].shape[0] > 0:
+    if len(yolo_result.xyxy[0]) > 0:
         for detection in yolo_result.xyxy[0]:
-            x1, y1, x2, y2, conf, cls = detection.cpu().numpy()
-            # Draw rectangle around phone
-            cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-            # Add confidence score
-            conf_text = f'Phone: {conf:.2f}'
-            cv2.putText(image, conf_text, (int(x1), int(y1)-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                       0.5, (0, 0, 255), 2)
+            if len(detection) >= 6:  # Ensure we have all required values
+                x1, y1, x2, y2, confidence, class_id = detection.cpu().numpy()
+                # Draw rectangle around phone
+                cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                # Add confidence score
+                conf_text = f'Phone: {confidence:.2f}'
+                cv2.putText(image, conf_text, (int(x1), int(y1)-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                           0.5, (0, 0, 255), 2)
 
     # Prepare input data for TFLite
     rgb_image = cv2.resize(rgb_image, (224,224))
@@ -149,11 +150,11 @@ def infer(args):
         interpreter.allocate_tensors()
 
         # Configure YOLOv5 for CPU usage
-        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu')
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu', force_reload=False)
         yolo_model.classes = [67]  # phone class
-        yolo_model.conf = 0.15
-        yolo_model.iou = 0.35
-        yolo_model.max_det = 10
+        yolo_model.conf = 0.25     # Increased confidence threshold for more reliable detections
+        yolo_model.iou = 0.45      # Increased IOU threshold
+        yolo_model.max_det = 5     # Reduced maximum detections for better performance
         # Force model to eval mode and CPU
         yolo_model.eval()
         yolo_model = yolo_model.cpu()
