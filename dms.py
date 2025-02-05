@@ -131,22 +131,23 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Load YOLOv5 model with force_reload and specific version
-        yolo_model = torch.hub.load('ultralytics/yolov5:v6.0',  # Use specific version
-                                  'custom',
-                                  path='models/v5lite-s.pt',  # Update this path
-                                  force_reload=True,  # Force reload to avoid cache issues
-                                  trust_repo=True)
-        
-        # Configure model settings
-        yolo_model.conf = 0.4
-        yolo_model.iou = 0.45
+        # Load YOLOv5-Lite model with force reload
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'custom', 
+                                  path='models/v5lite-s.pt',
+                                  force_reload=True,  # Add force reload
+                                  trust_repo=True,
+                                  _verbose=False)     # Suppress download messages
+        yolo_model.conf = 0.4     # Increased confidence threshold
+        yolo_model.iou = 0.45     # Increased IOU threshold
         yolo_model.classes = [67]  # phone class
-        yolo_model.max_det = 1
+        yolo_model.max_det = 1    # Only detect one phone at a time
         
-        # Force model to eval mode and CPU
+        # Force model to eval mode
         yolo_model.eval()
         yolo_model = yolo_model.cpu()
+        
+        # Disable gradients for inference
+        torch.set_grad_enabled(False)
 
         image_path = args.image
         video_path = args.video
@@ -205,9 +206,11 @@ def infer(args):
 
     except Exception as e:
         print(f"Error occurred: {str(e)}")
-        GPIO.cleanup()
+        if 'gpio_initialized' in locals():  # Only cleanup if GPIO was initialized
+            GPIO.cleanup()
     finally:
-        GPIO.cleanup()
+        if 'gpio_initialized' in locals():  # Check if GPIO was initialized
+            GPIO.cleanup()
         print("GPIO cleaned up")
 
 if __name__ == '__main__':
