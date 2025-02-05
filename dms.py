@@ -131,8 +131,10 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Replace YOLOv5 with YOLOv5-Lite-s model
-        yolo_model = torch.hub.load('ppogg/YOLOv5-Lite', 'v5lite-s', device='cpu')
+        # Load YOLOv5-Lite model correctly
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'custom', 
+                                  path='models/v5lite-s.pt',  # Update this path
+                                  trust_repo=True)
         yolo_model.conf = 0.4     # Increased confidence threshold
         yolo_model.iou = 0.45     # Increased IOU threshold
         yolo_model.classes = [67]  # phone class
