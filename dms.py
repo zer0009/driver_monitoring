@@ -114,8 +114,14 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
                 (0, 0, 255) if eyes_status == 'eye closed' else conf.LM_COLOR, 2, lineType=cv2.LINE_AA)
     cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 0.7,
                 (0, 0, 255) if yawn_status == 'yawning' else conf.CT_COLOR, 2, lineType=cv2.LINE_AA)
-    if action:  # Only display action text if there's a warning
-        cv2.putText(image, action, (30,120), 0, 0.7,
+    
+    # Always display mobile phone status
+    mobile_status = "Mobile Phone Detected!" if (result[0] == 0 and yolo_result.xyxy[0].shape[0] > 0) else "No Mobile Phone"
+    cv2.putText(image, f'Mobile Status: {mobile_status}', (30,120), 0, 0.7,
+                (0, 0, 255) if "Detected" in mobile_status else (0, 255, 0), 2, lineType=cv2.LINE_AA)
+    
+    if action:  # Display additional warning if needed
+        cv2.putText(image, action, (30,160), 0, 0.7,
                     (0, 0, 255), 2, lineType=cv2.LINE_AA)
     
     return image
