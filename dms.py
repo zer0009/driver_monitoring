@@ -131,16 +131,17 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
-        # Configure YOLOv5 for CPU usage
-        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5n', device='cpu')
+        # Replace YOLOv5 with YOLOv5-Lite-s model
+        yolo_model = torch.hub.load('ppogg/YOLOv5-Lite', 'v5lite-s', device='cpu')
+        yolo_model.conf = 0.4     # Increased confidence threshold
+        yolo_model.iou = 0.45     # Increased IOU threshold
         yolo_model.classes = [67]  # phone class
-        yolo_model.conf = 0.15
-        yolo_model.iou = 0.35
-        yolo_model.max_det = 10
-        # Force model to eval mode and CPU
+        yolo_model.max_det = 1    # Only detect one phone at a time
+        
+        # Force model to eval mode
         yolo_model.eval()
         yolo_model = yolo_model.cpu()
-
+        
         # Disable gradients for inference
         torch.set_grad_enabled(False)
 
@@ -160,11 +161,11 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                # Further reduce resolution for Raspberry Pi
-                cap.set(3, 240)  # Even smaller width
-                cap.set(4, 180)  # Even smaller height
+                # Optimize camera settings for Pi
+                cap.set(3, 320)  # Width
+                cap.set(4, 320)  # Height - use square input
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS for Pi
+                cap.set(cv2.CAP_PROP_FPS, 15)  # Reduced but stable FPS
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
