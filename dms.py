@@ -131,11 +131,17 @@ def infer(args):
         interpreter = tf.lite.Interpreter(model_path=checkpoint)
         interpreter.allocate_tensors()
 
+        # Add safe globals for numpy arrays
+        torch.serialization.add_safe_globals(['numpy.core.multiarray._reconstruct'])
+
         # Load YOLOv5-Lite model with force reload
         yolo_model = torch.hub.load('ultralytics/yolov5:v5.0', 'custom', 'models/v5lite-s.pt',
                                   force_reload=True,
                                   trust_repo=True)
-        yolo_model.conf = 0.4     # Increased confidence threshold
+        # Alternative loading method if above still fails
+        # yolo_model = torch.load('models/v5lite-s.pt', weights_only=False)  # Use with caution
+        
+        yolo_model.conf = 0.4
         yolo_model.iou = 0.45     # Increased IOU threshold
         yolo_model.classes = [67]  # phone class
         yolo_model.max_det = 1    # Only detect one phone at a time
