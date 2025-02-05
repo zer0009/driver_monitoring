@@ -20,8 +20,9 @@ SoftwareSerial gsmSerial(GSM_RX, GSM_TX);
 SoftwareSerial gpsSerial(GPS_RX, GPS_TX);
 TinyGPSPlus gps;
 
-// Phone number for alerts
-const String PHONE_NUMBER = "+1234567890";  // Replace with your number
+// Phone number for alerts - Egyptian format
+const String PHONE_NUMBER = "+201067872456";  // Replace X with your actual number
+// Example: if your number is 012-3456-7890, use "+2012XXXXXXXX"
 
 // Alert messages
 const String ALERTS[] = {
@@ -54,36 +55,73 @@ Signal signals[] = {
 // Time between alerts for the same condition
 const unsigned long ALERT_COOLDOWN = 300000;  // 5 minutes
 
+// Test message
+const String TEST_MESSAGE = "This is a test message from DMS Arduino";
+
 void setup() {
-    Serial.begin(9600);
-    gsmSerial.begin(9600);
-    gpsSerial.begin(9600);
+    // Start Serial first for debugging
+    Serial.begin(115200);
+    delay(2000);  // Wait for Serial to be ready
     
-    // Add debug LED setup
+    Serial.println("\n\n----- DMS Arduino Test Starting -----");
+    
+    // Setup LED
     pinMode(DEBUG_LED, OUTPUT);
-    digitalWrite(DEBUG_LED, HIGH);  // LED off initially (ESP8266 LED is active LOW)
+    digitalWrite(DEBUG_LED, HIGH);  // LED off initially
     
-    // Configure input pins for receiving signals from Raspberry Pi
-    for (Signal& signal : signals) {
-        pinMode(signal.pin, INPUT);  // Simple INPUT mode is correct here
-    }
+    // Visual indicator that code is running
+    blinkLED(5);  // Blink 5 times at startup
     
-    initGSM();
+    Serial.println("Starting GSM Serial...");
+    gsmSerial.begin(9600);
     
-    // Visual feedback for initialization
-    blinkLED(3);
-    Serial.println("System initialized and monitoring...");
+    // Basic AT command test
+    Serial.println("\nTesting GSM Module with AT command:");
+    testGSM();
 }
 
 void loop() {
-    // Update GPS data
-    while (gpsSerial.available()) {
-        gps.encode(gpsSerial.read());
+    // Missing input checks! Add:
+    for(int i = 0; i < 3; i++) {
+        checkSignal(i);
     }
     
-    // Check all input signals
-    for (int i = 0; i < 3; i++) {
-        checkSignal(i);
+    Serial.println("\n----- Testing GSM Every 10 Seconds -----");
+    testGSM();
+    blinkLED(2);  // Blink twice to show we're alive
+    delay(10000);  // Wait 10 seconds between tests
+}
+
+void testGSM() {
+    digitalWrite(DEBUG_LED, LOW);  // LED on while testing
+    
+    Serial.println("Sending: AT");
+    gsmSerial.println("AT");
+    delay(1000);
+    
+    if (gsmSerial.available()) {
+        Serial.println("Response received:");
+        while (gsmSerial.available()) {
+            char c = gsmSerial.read();
+            Serial.write(c);
+        }
+    } else {
+        Serial.println("NO RESPONSE FROM GSM MODULE!");
+    }
+    
+    digitalWrite(DEBUG_LED, HIGH);  // LED off after test
+}
+
+void blinkLED(int times) {
+    Serial.print("Blinking LED ");
+    Serial.print(times);
+    Serial.println(" times");
+    
+    for(int i = 0; i < times; i++) {
+        digitalWrite(DEBUG_LED, LOW);   // LED on
+        delay(200);
+        digitalWrite(DEBUG_LED, HIGH);  // LED off
+        delay(200);
     }
 }
 
@@ -104,6 +142,12 @@ void checkSignal(int signalIndex) {
         if (reading != signal.currentState) {
             signal.currentState = reading;
             
+            // Add debug print
+            Serial.print("Signal ");
+            Serial.print(signalIndex);
+            Serial.print(" state changed to: ");
+            Serial.println(reading ? "HIGH" : "LOW");
+            
             if (reading && (millis() - signal.lastAlertTime > ALERT_COOLDOWN)) {
                 signal.lastAlertTime = millis();
                 digitalWrite(DEBUG_LED, LOW);  // LED on
@@ -116,17 +160,11 @@ void checkSignal(int signalIndex) {
     signal.lastState = reading;
 }
 
-// Add LED feedback function
-void blinkLED(int times) {
-    for(int i = 0; i < times; i++) {
-        digitalWrite(DEBUG_LED, LOW);   // LED on
-        delay(200);
-        digitalWrite(DEBUG_LED, HIGH);  // LED off
-        delay(200);
-    }
-}
-
 void sendAlert(int alertIndex) {
+    // Add alert type print
+    Serial.print("Attempting to send alert: ");
+    Serial.println(ALERTS[alertIndex]);
+    
     if (!gps.location.isValid()) {
         Serial.println("Warning: GPS location not available");
         return;
@@ -179,13 +217,58 @@ String createAlertMessage(const String& alert) {
 
 void initGSM() {
     Serial.println("Initializing GSM...");
-    delay(1000);
+    delay(2000);
     
+    Serial.println("\nTesting AT");
     gsmSerial.println("AT");
     delay(1000);
+    printGSMResponse();
     
-    gsmSerial.println("AT+CMGF=1"); // Set SMS text mode
+    Serial.println("\nSetting SMS mode");
+    gsmSerial.println("AT+CMGF=1");
     delay(1000);
+    printGSMResponse();
     
-    Serial.println("GSM initialized");
+    Serial.println("\nSetting character encoding");
+    gsmSerial.println("AT+CSCS=\"GSM\"");
+    delay(1000);
+    printGSMResponse();
+    
+    Serial.println("\nChecking network registration");
+    gsmSerial.println("AT+CREG?");
+    delay(1000);
+    printGSMResponse();
+    
+    Serial.println("\nChecking signal quality");
+    gsmSerial.println("AT+CSQ");
+    delay(1000);
+    printGSMResponse();
+    
+    Serial.println("GSM initialization complete");
+}
+
+void printGSMResponse() {
+    while (gsmSerial.available()) {
+        Serial.write(gsmSerial.read());
+    }
+    Serial.println();
+}
+
+void sendTestMessage() {
+    digitalWrite(DEBUG_LED, LOW);  // LED on
+    
+    Serial.println("Sending to number: " + PHONE_NUMBER);
+    gsmSerial.println("AT+CMGS=\"" + PHONE_NUMBER + "\"");
+    delay(1000);
+    printGSMResponse();
+    
+    gsmSerial.print(TEST_MESSAGE);
+    Serial.println("Message content: " + TEST_MESSAGE);
+    delay(100);
+    
+    gsmSerial.write(26);  // CTRL+Z to send
+    delay(1000);
+    printGSMResponse();
+    
+    digitalWrite(DEBUG_LED, HIGH);  // LED off
 }

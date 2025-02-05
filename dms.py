@@ -27,16 +27,20 @@ class SignalHandler:
         self.last_state = False
 
     def update(self, new_state):
-        if new_state and not self.last_state:  # Signal just became active
+        if new_state != self.last_state:
+            print(f"GPIO {self.pin} state changed to: {'HIGH' if new_state else 'LOW'}")
+            
+        if new_state and not self.last_state:
             self.active_since = time.time()
-        elif not new_state and self.last_state:  # Signal just became inactive
+        elif not new_state and self.last_state:
+            print(f"GPIO {self.pin} signal reset after {time.time() - self.active_since:.1f}s")
             self.active_since = None
-        
+            
         self.last_state = new_state
         
-        # Only trigger if signal has been active for minimum duration
         if self.active_since and (time.time() - self.active_since) >= MIN_SIGNAL_DURATION:
             GPIO.output(self.pin, GPIO.HIGH)
+            print(f"GPIO {self.pin} triggered (active for {(time.time() - self.active_since):.1f}s)")
         else:
             GPIO.output(self.pin, GPIO.LOW)
 
@@ -107,11 +111,6 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     eyes_signal.update(eyes_status == 'eye closed')
     yawn_signal.update(yawn_status == 'yawning')
     mobile_signal.update(result[0] == 0 and phone_detected)
-
-    # Control GPIO based on detections
-    GPIO.output(EYES_CLOSED_PIN, GPIO.HIGH if eyes_status == 'eye closed' else GPIO.LOW)
-    GPIO.output(YAWN_PIN, GPIO.HIGH if yawn_status == 'yawning' else GPIO.LOW)
-    GPIO.output(MOBILE_PIN, GPIO.HIGH if (result[0] == 0 and phone_detected) else GPIO.LOW)
 
     # Update the action detection logic
     action = ''
