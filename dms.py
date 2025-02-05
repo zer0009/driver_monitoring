@@ -127,56 +127,23 @@ def infer(args):
         
         checkpoint = args.checkpoint
         
-        # Check file extension to determine model type
-        is_tflite = checkpoint.lower().endswith('.tflite')
-        
-        try:
-            if is_tflite:
-                print("Loading TFLite model...")
-                interpreter = tf.lite.Interpreter(model_path=checkpoint)
-                interpreter.allocate_tensors()
-            else:
-                print("Loading Keras/TensorFlow model...")
-                model = tf.keras.models.load_model(checkpoint)
-                # Create wrapper function to match TFLite interface
-                class ModelWrapper:
-                    def __init__(self, model):
-                        self.model = model
-                        self.input_details = [{'index': 0}]
-                        self.output_details = [{'index': 0}]
-                    
-                    def set_tensor(self, _, data):
-                        self.input_data = data
-                    
-                    def invoke(self):
-                        self.output = self.model.predict(self.input_data, verbose=0)
-                    
-                    def get_tensor(self, _):
-                        return self.output
-                
-                interpreter = ModelWrapper(model)
-                
-        except IOError as e:
-            raise IOError(f"Error loading model file '{checkpoint}': {str(e)}")
-        except Exception as e:
-            raise ValueError(f"Error initializing model: {str(e)}")
+        # Load TFLite model
+        interpreter = tf.lite.Interpreter(model_path=checkpoint)
+        interpreter.allocate_tensors()
 
         # Replace YOLOv5 with YOLOv5-Lite-s model
-        try:
-            yolo_model = torch.hub.load('ppogg/YOLOv5-Lite', 'v5lite-s', device='cpu')
-            yolo_model.conf = 0.4     # Increased confidence threshold
-            yolo_model.iou = 0.45     # Increased IOU threshold
-            yolo_model.classes = [67]  # phone class
-            yolo_model.max_det = 1    # Only detect one phone at a time
-            
-            # Force model to eval mode
-            yolo_model.eval()
-            yolo_model = yolo_model.cpu()
-            
-            # Disable gradients for inference
-            torch.set_grad_enabled(False)
-        except Exception as e:
-            raise ValueError(f"Error loading YOLO model: {str(e)}")
+        yolo_model = torch.hub.load('ppogg/YOLOv5-Lite', 'v5lite-s', device='cpu')
+        yolo_model.conf = 0.4     # Increased confidence threshold
+        yolo_model.iou = 0.45     # Increased IOU threshold
+        yolo_model.classes = [67]  # phone class
+        yolo_model.max_det = 1    # Only detect one phone at a time
+        
+        # Force model to eval mode
+        yolo_model.eval()
+        yolo_model = yolo_model.cpu()
+        
+        # Disable gradients for inference
+        torch.set_grad_enabled(False)
 
         image_path = args.image
         video_path = args.video
@@ -236,12 +203,9 @@ def infer(args):
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         GPIO.cleanup()
-        return False  # Indicate failure
     finally:
         GPIO.cleanup()
         print("GPIO cleaned up")
-    
-    return True  # Indicate success
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
@@ -252,5 +216,4 @@ if __name__ == '__main__':
     p.add_argument('--save', type=bool, default=False, help='Save video or not')
     args = p.parse_args()
 
-    if not infer(args):
-        exit(1)  # Exit with error code if inference failed
+    infer(args)
