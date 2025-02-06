@@ -28,39 +28,40 @@ AUDIO_DIR = "audio_warnings"  # Directory containing warning sound files
 WARNING_SOUND = "warning.wav"  # Single warning sound file
 
 class SignalHandler:
-    def __init__(self, pin, use_sound=False):  # Modified to use boolean flag
+    def __init__(self, pin, use_sound=False):
         self.pin = pin
         self.active_since = None
         self.last_state = False
-        self.use_sound = use_sound  # Whether this signal should trigger sound
+        self.use_sound = use_sound
         self.last_alert_time = 0
-        self.alert_cooldown = 3.0  # Seconds between audio alerts
+        self.alert_cooldown = 2.0  # Reduced cooldown from 3.0 to 2.0 seconds
 
     def update(self, new_state):
         if new_state != self.last_state:
-            print(f"GPIO {self.pin} state changed to: {'HIGH' if new_state else 'LOW'}")
+            print(f"\n🔄 GPIO {self.pin} state changed to: {'HIGH' if new_state else 'LOW'}")
             
         if new_state and not self.last_state:
             self.active_since = time.time()
+            print(f"⏱️ Starting timer for GPIO {self.pin}")
         elif not new_state and self.last_state:
-            print(f"GPIO {self.pin} signal reset after {time.time() - self.active_since:.1f}s")
+            if self.active_since:
+                print(f"⏱️ GPIO {self.pin} signal reset after {time.time() - self.active_since:.1f}s")
             self.active_since = None
             
         self.last_state = new_state
         
         if self.active_since and (time.time() - self.active_since) >= MIN_SIGNAL_DURATION:
             GPIO.output(self.pin, GPIO.HIGH)
-            # Play sound if cooldown has elapsed and sound is enabled
             current_time = time.time()
             if self.use_sound and (current_time - self.last_alert_time) >= self.alert_cooldown:
                 try:
-                    print(f"\n🔊 Playing warning sound for GPIO {self.pin}")  # Added debug print
+                    print(f"\n🔊 Playing warning sound for GPIO {self.pin}")
                     pygame.mixer.Sound(WARNING_SOUND).play()
                     self.last_alert_time = current_time
-                    print(f"✅ Sound played successfully")  # Added success confirmation
+                    print(f"✅ Sound played successfully for GPIO {self.pin}")
                 except Exception as e:
-                    print(f"❌ Audio playback error: {e}")  # Added error emoji
-            print(f"GPIO {self.pin} triggered (active for {(time.time() - self.active_since):.1f}s)")
+                    print(f"❌ Audio playback error for GPIO {self.pin}: {e}")
+            print(f"⚡ GPIO {self.pin} triggered (active for {(time.time() - self.active_since):.1f}s)")
         else:
             GPIO.output(self.pin, GPIO.LOW)
 
@@ -103,10 +104,18 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     if facial_tracker.detected:
         eyes_status = facial_tracker.eyes_status
         yawn_status = facial_tracker.yawn_status
+        print(f"\n👁️ Raw Eyes Status: {eyes_status}")  # Debug eye status
 
     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     yolo_result = yolo_model(rgb_image)
     phone_detected = len(yolo_result.xyxy[0]) > 0  # Flag for phone detection
+    
+    # Add detailed phone detection debug
+    if phone_detected:
+        print("\n📱 Phone Detection Details:")
+        for detection in yolo_result.xyxy[0]:
+            confidence = detection[4].item()
+            print(f"Phone confidence: {confidence:.2f}")
 
     # Draw bounding boxes for detected phones
     if phone_detected:
@@ -141,16 +150,16 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     print(f"Yawn Status: {yawn_status}")
     print(f"Phone Detected: {phone_detected}")
 
-    # Update signals with current states and add debug prints
-    print("\n--- Signal Updates ---")
-    print("Checking eyes closed signal...")
+    # Update signals with current states and add detailed debug
+    print("\n--- Detailed Signal States ---")
+    print(f"Eyes Closed Condition: {eyes_status == 'eye closed'}")
     eyes_signal.update(eyes_status == 'eye closed')
     
-    print("Checking yawn signal...")
+    print(f"Yawning Condition: {yawn_status == 'yawning'}")
     yawn_signal.update(yawn_status == 'yawning')
     
-    print("Checking mobile signal...")
-    mobile_signal.update(result[0] == 0 and phone_detected)
+    print(f"Mobile Condition: {result[0] == 0 and phone_detected}")
+    mobile_signal.update(phone_detected)  # Simplified phone detection logic
 
     # Update the action detection logic
     action = ''
