@@ -6,6 +6,8 @@ import tensorflow as tf
 import RPi.GPIO as GPIO  # Add GPIO import
 import time
 import warnings
+import pygame.mixer  # Add pygame.mixer import
+import os
 
 from dms_utils.dms_utils import load_and_preprocess_image, ACTIONS
 from net import MobileNet
@@ -21,11 +23,18 @@ MOBILE_PIN = 22      # GPIO pin for mobile phone detection
 MIN_SIGNAL_DURATION = 2.0  # Minimum duration (seconds) before triggering alert
 SIGNAL_RESET_TIME = 1.0    # Time to wait before resetting signal
 
+# Add after other constants
+AUDIO_DIR = "audio_warnings"  # Directory containing warning sound files
+WARNING_SOUND = "warning.wav"  # Single warning sound file
+
 class SignalHandler:
-    def __init__(self, pin):
+    def __init__(self, pin, use_sound=False):  # Modified to use boolean flag
         self.pin = pin
         self.active_since = None
         self.last_state = False
+        self.use_sound = use_sound  # Whether this signal should trigger sound
+        self.last_alert_time = 0
+        self.alert_cooldown = 3.0  # Seconds between audio alerts
 
     def update(self, new_state):
         if new_state != self.last_state:
@@ -41,6 +50,14 @@ class SignalHandler:
         
         if self.active_since and (time.time() - self.active_since) >= MIN_SIGNAL_DURATION:
             GPIO.output(self.pin, GPIO.HIGH)
+            # Play sound if cooldown has elapsed and sound is enabled
+            current_time = time.time()
+            if self.use_sound and (current_time - self.last_alert_time) >= self.alert_cooldown:
+                try:
+                    pygame.mixer.Sound(WARNING_SOUND).play()
+                    self.last_alert_time = current_time
+                except Exception as e:
+                    print(f"Audio playback error: {e}")
             print(f"GPIO {self.pin} triggered (active for {(time.time() - self.active_since):.1f}s)")
         else:
             GPIO.output(self.pin, GPIO.LOW)
@@ -58,10 +75,18 @@ def setup_gpio():
     
     print("GPIO initialized successfully")
 
+def setup_audio():
+    """Initialize audio system"""
+    try:
+        pygame.mixer.init()
+        print("Audio system initialized successfully")
+    except Exception as e:
+        print(f"Failed to initialize audio: {e}")
+
 # Create signal handlers
-eyes_signal = SignalHandler(EYES_CLOSED_PIN)
-yawn_signal = SignalHandler(YAWN_PIN)
-mobile_signal = SignalHandler(MOBILE_PIN)
+eyes_signal = SignalHandler(EYES_CLOSED_PIN, use_sound=True)
+yawn_signal = SignalHandler(YAWN_PIN, use_sound=True)
+mobile_signal = SignalHandler(MOBILE_PIN, use_sound=True)
 
 def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     # Get input and output details
@@ -159,6 +184,7 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
 def infer(args):
     try:
         setup_gpio()
+        setup_audio()  # Add audio setup
         print("Starting DMS monitoring...")
         
         checkpoint = args.checkpoint
