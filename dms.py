@@ -96,100 +96,65 @@ def infer_one_frame(image, interpreter, yolo_model, facial_tracker):
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     
-    eyes_status = ''
-    yawn_status = ''
+    # Initialize status variables with default values
+    eyes_status = 'unknown'
+    yawn_status = 'unknown'
     action = ''
 
-    facial_tracker.process_frame(image)
-    if facial_tracker.detected:
-        eyes_status = facial_tracker.eyes_status
-        yawn_status = facial_tracker.yawn_status
-        print(f"\n👁️ Raw Eyes Status: {eyes_status}")  # Debug eye status
+    # Process facial tracking with error handling
+    try:
+        facial_tracker.process_frame(image)
+        if facial_tracker.detected:
+            eyes_status = facial_tracker.eyes_status if facial_tracker.eyes_status else 'unknown'
+            yawn_status = facial_tracker.yawn_status if facial_tracker.yawn_status else 'unknown'
+            print(f"\n👁️ Eyes Status: {eyes_status}")
+            print(f"😮 Yawn Status: {yawn_status}")
+            print(f"Face Detected: {facial_tracker.detected}")
+        else:
+            print("\n⚠️ No face detected in frame")
+    except Exception as e:
+        print(f"\n❌ Facial tracking error: {e}")
 
+    # Phone detection
     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     yolo_result = yolo_model(rgb_image)
-    phone_detected = len(yolo_result.xyxy[0]) > 0  # Flag for phone detection
+    phone_detected = len(yolo_result.xyxy[0]) > 0
     
-    # Add detailed phone detection debug
     if phone_detected:
-        print("\n📱 Phone Detection Details:")
+        print("\n📱 Phone detected!")
         for detection in yolo_result.xyxy[0]:
             confidence = detection[4].item()
             print(f"Phone confidence: {confidence:.2f}")
 
-    # Draw bounding boxes for detected phones
-    if phone_detected:
-        for detection in yolo_result.xyxy[0]:
-            if len(detection) >= 6:  # Ensure we have all required values
-                x1, y1, x2, y2, confidence, class_id = detection.cpu().numpy()
-                # Draw rectangle around phone
-                cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-                # Add confidence score
-                conf_text = f'Phone: {confidence:.2f}'
-                cv2.putText(image, conf_text, (int(x1), int(y1)-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                           0.5, (0, 0, 255), 2)
-
-    # Prepare input data for TFLite
-    rgb_image = cv2.resize(rgb_image, (224,224))
-    rgb_image = tf.expand_dims(rgb_image, 0)
-    rgb_image = tf.cast(rgb_image, tf.float32)
-
-    # Set input tensor
-    interpreter.set_tensor(input_details[0]['index'], rgb_image)
-    
-    # Run inference
-    interpreter.invoke()
-    
-    # Get output tensor
-    y = interpreter.get_tensor(output_details[0]['index'])
-    result = np.argmax(y, axis=1)
-
-    # Add debug prints for detections
-    print("\n--- Detection Status ---")
+    # Debug prints for all states
+    print("\n=== Detection Summary ===")
+    print(f"Face Detection: {'Success' if facial_tracker.detected else 'Failed'}")
     print(f"Eyes Status: {eyes_status}")
     print(f"Yawn Status: {yawn_status}")
     print(f"Phone Detected: {phone_detected}")
 
-    # Update signals with current states and add detailed debug
-    print("\n--- Detailed Signal States ---")
-    print(f"Eyes Closed Condition: {eyes_status == 'eye closed'}")
+    # Update signals
     eyes_signal.update(eyes_status == 'eye closed')
-    
-    print(f"Yawning Condition: {yawn_status == 'yawning'}")
     yawn_signal.update(yawn_status == 'yawning')
-    
-    print(f"Mobile Condition: {result[0] == 0 and phone_detected}")
-    mobile_signal.update(phone_detected)  # Simplified phone detection logic
+    mobile_signal.update(phone_detected)
 
-    # Update the action detection logic
-    action = ''
-    if result[0] == 0 and phone_detected:
-        action = "Mobile Phone Detected!"
-    elif eyes_status == 'eye closed':
-        action = "Warning: Eyes Closed!"
-    elif yawn_status == 'yawning':
-        action = "Warning: Yawning Detected!"
+    # Visual feedback
+    if facial_tracker.detected:
+        # Draw face landmarks or rectangle here if needed
+        cv2.putText(image, f'Eyes: {eyes_status}', (30,40), 0, 1.0,
+                    (0, 0, 255) if eyes_status == 'eye closed' else (0, 255, 0), 2)
+        cv2.putText(image, f'Mouth: {yawn_status}', (30,80), 0, 1.0,
+                    (0, 0, 255) if yawn_status == 'yawning' else (0, 255, 0), 2)
+    else:
+        cv2.putText(image, 'No face detected', (30,40), 0, 1.0, (0, 0, 255), 2)
 
-    # Update text display with more visible colors and clearer messages
-    cv2.putText(image, f'Driver eyes: {eyes_status}', (30,40), 0, 1.0,
-                (0, 0, 255) if eyes_status == 'eye closed' else (0, 255, 0), 2, lineType=cv2.LINE_AA)
-    cv2.putText(image, f'Driver mouth: {yawn_status}', (30,80), 0, 1.0,
-                (0, 0, 255) if yawn_status == 'yawning' else (0, 255, 0), 2, lineType=cv2.LINE_AA)
-    
-    # Simplified phone detection logic
-    mobile_status = "MOBILE PHONE DETECTED!" if phone_detected else "No Mobile Phone"
-    cv2.putText(image, f'Mobile Status: {mobile_status}', (30,120), 0, 1.0,
-                (0, 0, 255) if phone_detected else (0, 255, 0), 3, lineType=cv2.LINE_AA)
-    
-    # Add debug information
     if phone_detected:
-        debug_info = f"Detections: {len(yolo_result.xyxy[0])}"
-        cv2.putText(image, debug_info, (30,200), 0, 1.0, (255, 0, 0), 2, lineType=cv2.LINE_AA)
-    
-    if action:  # Display additional warning if needed
-        cv2.putText(image, action, (30,160), 0, 1.0,  # Increased size
-                    (0, 0, 255), 3, lineType=cv2.LINE_AA)  # Thicker text
-    
+        cv2.putText(image, 'PHONE DETECTED!', (30,120), 0, 1.0, (0, 0, 255), 3)
+        # Draw bounding boxes for phones
+        for detection in yolo_result.xyxy[0]:
+            x1, y1, x2, y2 = map(int, detection[:4])
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
     return image
 
 def infer(args):
