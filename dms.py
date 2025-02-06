@@ -19,9 +19,9 @@ EYES_CLOSED_PIN = 17  # GPIO pin for eyes closed
 YAWN_PIN = 27        # GPIO pin for yawning
 MOBILE_PIN = 22      # GPIO pin for mobile phone detection
 
-# Add constants for signal timing
-MIN_SIGNAL_DURATION = 2.0  # Minimum duration (seconds) before triggering alert
-SIGNAL_RESET_TIME = 1.0    # Time to wait before resetting signal
+# Adjust constants for faster response
+MIN_SIGNAL_DURATION = 0.5  # Reduced from 2.0 to 0.5 seconds
+SIGNAL_RESET_TIME = 0.5    # Reduced from 1.0 to 0.5 seconds
 
 # Add after other constants
 AUDIO_DIR = "audio_warnings"  # Directory containing warning sound files
@@ -54,10 +54,12 @@ class SignalHandler:
             current_time = time.time()
             if self.use_sound and (current_time - self.last_alert_time) >= self.alert_cooldown:
                 try:
+                    print(f"\n🔊 Playing warning sound for GPIO {self.pin}")  # Added debug print
                     pygame.mixer.Sound(WARNING_SOUND).play()
                     self.last_alert_time = current_time
+                    print(f"✅ Sound played successfully")  # Added success confirmation
                 except Exception as e:
-                    print(f"Audio playback error: {e}")
+                    print(f"❌ Audio playback error: {e}")  # Added error emoji
             print(f"GPIO {self.pin} triggered (active for {(time.time() - self.active_since):.1f}s)")
         else:
             GPIO.output(self.pin, GPIO.LOW)
@@ -226,11 +228,11 @@ def infer(args):
             cap = cv2.VideoCapture(video_path) if video_path else cv2.VideoCapture(cam_id)
             
             if cam_id is not None:
-                # Further reduce resolution for Raspberry Pi
-                cap.set(3, 240)  # Even smaller width
-                cap.set(4, 180)  # Even smaller height
+                # Adjust camera settings for better responsiveness
+                cap.set(3, 240)  # width
+                cap.set(4, 180)  # height
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 10)  # Further reduced FPS for Pi
+                cap.set(cv2.CAP_PROP_FPS, 15)  # Increased from 10 to 15 FPS
             
             frame_width = int(cap.get(3))
             frame_height = int(cap.get(4))
@@ -246,10 +248,8 @@ def infer(args):
                     break
 
                 if cam_id is not None:
-                    # Skip more frames for faster processing
-                    cap.grab()  # Skip frame 1
-                    cap.grab()  # Skip frame 2
-                    cap.grab()  # Skip frame 3
+                    # Reduce frame skipping for faster response
+                    cap.grab()  # Skip only 1 frame instead of 3
                 
                 image = infer_one_frame(image, interpreter, yolo_model, facial_tracker)
                 
